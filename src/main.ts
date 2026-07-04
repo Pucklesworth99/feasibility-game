@@ -8,7 +8,7 @@
 import './style.css';
 import { Rng } from './core/rng';
 import { generateWorld, idx, MAP, randomSeedName, Terrain, World } from './core/world';
-import { BUILDINGS, estimatedPit, Placed, sitingPenalties, truePit } from './core/build';
+import { BUILDINGS, canPlace, estimatedPit, occupiedBy, Placed, sitingPenalties, truePit } from './core/build';
 import { isMuted, pulseIfChanged, sClick, sDing, shake, sKaching, sThud, toggleMute } from './ui/juice';
 import {
   applyProgram,
@@ -92,12 +92,15 @@ interface Game {
   buildings: Placed[];
 }
 
-let G: Game;
+let G!: Game; // definite-assignment: set by startGame/tryRestore before any interaction
 let mktRng: Rng;
 
 // Radial menu state.
 let pendingTile: { x: number; y: number } | null = null;
 let previewTool: Tool | null = null;
+
+// Ambient animation clock (rAF loop lives at the bottom of the file).
+let animTick = 0;
 
 // ---------- DOM ----------
 
@@ -378,15 +381,15 @@ function openBuildRadial(x: number, y: number): void {
     b.style.display = '';
     const def = BUILDINGS[i];
     const placed = G.buildings.some((p) => p.key === def.key);
-    const inPit = !!estPit[idx(x, y)];
-    b.disabled = placed || inPit;
+    const fit = canPlace(G.world, estPit, G.buildings, def, x, y);
+    b.disabled = placed || !fit.ok;
     b.title = placed
       ? `${def.name} already sited — tap it on the map to pick it up.`
-      : inPit
-        ? "That's inside the pit you've planned. The diggers would like that ground back."
-        : def.desc;
+      : fit.ok
+        ? def.desc
+        : fit.reason!;
     b.querySelector<HTMLElement>('.rn')!.textContent = def.short;
-    b.querySelector<HTMLElement>('.rc')!.textContent = placed ? 'placed' : inPit ? 'pit!' : 'site here';
+    b.querySelector<HTMLElement>('.rc')!.textContent = placed ? 'placed' : fit.ok ? `site ${def.w}×${def.h}` : "can't";
     b.style.left = `${Math.min(Math.max(cx + RADIAL_OFFSETS[i][0], 34), wrapW - 34)}px`;
     b.style.top = `${Math.min(Math.max(cy + RADIAL_OFFSETS[i][1], 30), wrapH - 30)}px`;
     b.onmouseenter = () => {};
@@ -1019,8 +1022,12 @@ function drawMap(): void {
   const hover = pendingTile ?? G.hover;
   const radius = pendingTile && previewTool !== null ? TOOLS[previewTool].radius : 0;
   // In build mode you see the pit you PREDICT; once built, the pit that WAS.
-  const pit = G.buildMode ? estimatedPit(G.k) : G.dfs.built ? truePit(G.world) : null;
-  render(mapCtx, G.world, G.k, G.showFindings, hover, radius, G.plan, G.buildings, pit);
+  const pit = G.buildMode
+    ? { mask: estimatedPit(G.k), dug: false }
+    : G.dfs.built
+      ? { mask: truePit(G.world), dug: true }
+      : null;
+  render(mapCtx, G.world, G.k, G.showFindings, hover, radius, G.plan, G.buildings, pit, animTick);
 }
 
 function drawSpark(): void {
@@ -1087,12 +1094,12 @@ mapCanvas.addEventListener('click', (ev) => {
     drawMap();
     return;
   }
-  // In build mode, tapping a placed building picks it up again.
+  // In build mode, tapping anywhere on a placed building picks it up again.
   if (G.buildMode) {
-    const bi = G.buildings.findIndex((b) => b.x === p.x && b.y === p.y);
-    if (bi >= 0) {
-      const picked = G.buildings.splice(bi, 1)[0];
-      toast(`${BUILDINGS.find((d) => d.key === picked.key)!.name} picked up — site it somewhere better.`);
+    const hit = occupiedBy(G.buildings, p.x, p.y);
+    if (hit) {
+      G.buildings.splice(G.buildings.indexOf(hit), 1);
+      toast(`${BUILDINGS.find((d) => d.key === hit.key)!.name} picked up — site it somewhere better.`);
       updateAll();
       saveGame();
       return;
@@ -1187,3 +1194,11 @@ $('btn-challenge').addEventListener('click', () => {
 // ---------- Boot ----------
 
 if (!tryRestore()) showStart();
+
+// Ambient animation: smoke, rigs, glints — ~11 fps via interval (rAF stalls
+// in throttled/background contexts; browsers clamp intervals there anyway,
+// which is exactly the behaviour we want for ambience).
+window.setInterval(() => {
+  animTick += 5;
+  if (!document.hidden && G !== undefined) drawMap();
+}, 90);

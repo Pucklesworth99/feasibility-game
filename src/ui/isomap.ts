@@ -1,21 +1,26 @@
 /**
- * Isometric tenement renderer — "angled plan". Diamond tiles with elevation
- * lift and shaded side-skirts for a 2.5D feel, all drawn programmatically on
- * Canvas 2D. Zero image assets. Overlays paint knowledge (anomaly heat,
- * JORC confidence) over terrain; markers show drill collars.
- * 30×30 grid at chunky tile sizes — readable at a glance (D-016).
+ * Isometric tenement renderer — "angled plan", McDonald's-game energy (D-020):
+ * saturated flat colours, fat dark outlines, chunky multi-tile buildings on
+ * cleared pads, and ambient animation (plant smoke, working rigs, gold
+ * glints). All programmatic on Canvas 2D — still zero image assets.
  */
 
 import { idx, inMap, MAP, Terrain, World } from '../core/world';
 import { Knowledge, Tool } from '../core/survey';
 import { Cls } from '../core/estimate';
-import { Placed } from '../core/build';
+import { defOf, Placed } from '../core/build';
 
 export const TW = 40; // tile width in internal px
 export const TH = 20; // tile height
 const LIFT = 20; // max elevation lift
 const ORIGIN_X = (MAP * TW) / 2 + TW / 2;
 const ORIGIN_Y = LIFT + 10;
+const OUTLINE = '#221812';
+
+export interface PitView {
+  mask: Uint8Array;
+  dug: boolean; // false = planned outline, true = excavated benches
+}
 
 export function canvasSize(): { w: number; h: number } {
   return { w: MAP * TW + TW, h: MAP * TH + TH + LIFT + 18 };
@@ -26,6 +31,14 @@ export function tileScreen(x: number, y: number, elev: number): { sx: number; sy
   return {
     sx: ORIGIN_X + ((x - y) * TW) / 2,
     sy: ORIGIN_Y + ((x + y) * TH) / 2 - elev * LIFT,
+  };
+}
+
+/** Grid-corner (not tile) → screen, at a fixed elevation. */
+function cornerScreen(cx: number, cy: number, elev: number): { sx: number; sy: number } {
+  return {
+    sx: ORIGIN_X + ((cx - cy) * TW) / 2,
+    sy: ORIGIN_Y + ((cx + cy) * TH) / 2 - elev * LIFT,
   };
 }
 
@@ -80,26 +93,26 @@ function shade(r: number, g: number, b: number, k: number): string {
   return `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`;
 }
 
-/** Base colour per terrain — high-contrast WA palette, lightened by elevation. */
+/** Saturated flat-colour terrain — pops like a cartoon, shades with height. */
 function terrainFill(t: Terrain, elev: number): string {
-  const k = 0.75 + elev * 0.5;
+  const k = 0.78 + elev * 0.45;
   switch (t) {
     case Terrain.Plain:
-      return shade(178, 104, 62, k);
+      return shade(196, 106, 54, k);
     case Terrain.Hill:
-      return shade(168, 126, 88, k + 0.08);
+      return shade(186, 132, 82, k + 0.08);
     case Terrain.Outcrop:
-      return shade(104, 82, 58, k);
+      return shade(116, 86, 54, k);
     case Terrain.SaltLake:
-      return shade(236, 229, 219, 0.96 + elev * 0.04);
+      return shade(242, 235, 224, 0.96 + elev * 0.04);
     case Terrain.Creek:
-      return shade(84, 128, 78, k);
+      return shade(74, 138, 74, k);
     case Terrain.Workings:
-      return shade(158, 96, 58, k);
+      return shade(178, 100, 52, k);
     case Terrain.Heritage:
-      return shade(148, 102, 78, k * 0.92);
+      return shade(164, 104, 82, k * 0.92);
     default:
-      return shade(178, 104, 62, k);
+      return shade(196, 106, 54, k);
   }
 }
 
@@ -112,7 +125,8 @@ export function render(
   hoverRadius: number,
   planned: Array<{ x: number; y: number }>,
   buildings: Placed[],
-  pitMask: Uint8Array | null,
+  pit: PitView | null,
+  tick: number,
 ): void {
   const { w, h } = canvasSize();
   ctx.fillStyle = '#0d0f13';
@@ -126,7 +140,7 @@ export function render(
       const { sx, sy } = tileScreen(x, y, t.elev);
       const drop = t.elev * LIFT + 8;
 
-      // Side skirts (fake 3D): left face dark, right face darker.
+      // Side skirts (fake 3D).
       ctx.fillStyle = 'rgba(34, 22, 15, 0.95)';
       ctx.beginPath();
       ctx.moveTo(sx - TW / 2, sy + TH / 2);
@@ -144,37 +158,36 @@ export function render(
       ctx.closePath();
       ctx.fill();
 
-      // Top face + subtle edge so tiles read individually.
+      // Top face + edge so tiles read individually.
       diamond(ctx, sx, sy);
       ctx.fillStyle = terrainFill(t.terrain, t.elev);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Terrain detail — deterministic per tile, no assets.
+      // Terrain detail — deterministic per tile.
       const hash = (x * 7 + y * 13) % 5;
       if (t.terrain === Terrain.Outcrop) {
-        ctx.fillStyle = 'rgba(58, 44, 32, 0.9)';
-        ctx.fillRect(sx - 8 + hash, sy + 6, 6, 3);
-        ctx.fillRect(sx + 2, sy + 10 + (hash % 2), 5, 3);
+        ctx.fillStyle = 'rgba(58, 44, 32, 0.95)';
+        ctx.fillRect(sx - 8 + hash, sy + 6, 7, 4);
+        ctx.fillRect(sx + 2, sy + 10 + (hash % 2), 6, 3);
         ctx.fillRect(sx - 3, sy + 12, 4, 2);
       } else if (t.terrain === Terrain.Workings) {
-        // The old shaft + mullock heap + a tired headframe.
-        ctx.fillStyle = 'rgba(24, 17, 12, 1)';
-        ctx.fillRect(sx - 4, sy + 7, 7, 6);
-        ctx.fillStyle = 'rgba(112, 84, 58, 0.95)';
-        ctx.fillRect(sx + 5 + (hash % 2), sy + 10, 5, 3);
-        ctx.strokeStyle = 'rgba(70, 54, 40, 0.95)';
-        ctx.lineWidth = 1.5;
+        ctx.fillStyle = OUTLINE;
+        ctx.fillRect(sx - 5, sy + 7, 8, 7);
+        ctx.fillStyle = 'rgba(122, 92, 62, 1)';
+        ctx.fillRect(sx + 5 + (hash % 2), sy + 10, 6, 4);
+        ctx.strokeStyle = 'rgba(64, 48, 34, 1)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(sx - 5, sy + 7);
-        ctx.lineTo(sx - 1, sy + 1);
-        ctx.lineTo(sx + 4, sy + 7);
+        ctx.moveTo(sx - 6, sy + 7);
+        ctx.lineTo(sx - 1, sy);
+        ctx.lineTo(sx + 5, sy + 7);
         ctx.stroke();
       } else if (t.terrain === Terrain.Heritage) {
-        ctx.strokeStyle = 'rgba(244, 236, 220, 0.65)';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(248, 240, 224, 0.7)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx - 9, sy + TH / 2 + 3);
         ctx.lineTo(sx - 1, sy + TH / 2 - 5);
@@ -184,14 +197,13 @@ export function render(
         ctx.lineTo(sx + 10, sy + TH / 2 - 1);
         ctx.stroke();
       } else if (t.terrain === Terrain.Creek && hash < 3) {
-        ctx.fillStyle = 'rgba(52, 68, 44, 1)';
-        ctx.fillRect(sx - 1 + (hash - 1) * 4, sy + 5, 2, 7); // trunk
-        ctx.fillStyle = 'rgba(96, 128, 74, 0.95)';
-        ctx.fillRect(sx - 5 + (hash - 1) * 4, sy + 2, 10, 5); // canopy
+        ctx.fillStyle = 'rgba(48, 66, 40, 1)';
+        ctx.fillRect(sx - 1 + (hash - 1) * 5, sy + 4, 3, 8);
+        ctx.fillStyle = 'rgba(104, 142, 76, 1)';
+        ctx.fillRect(sx - 6 + (hash - 1) * 5, sy + 1, 12, 6);
       }
 
-      // The one knowledge ladder (D-017): Measured > Indicated > Inferred >
-      // Prospective (surface smoke) > tested-and-quiet. One colour language.
+      // The one knowledge ladder (D-017), louder (D-020).
       const i = idx(x, y);
       if (showFindings) {
         const c = k.cls[i];
@@ -200,103 +212,111 @@ export function render(
           diamond(ctx, sx, sy);
           ctx.fillStyle =
             c === Cls.Measured
-              ? 'rgba(74, 222, 128, 0.5)'
+              ? 'rgba(74, 222, 128, 0.6)'
               : c === Cls.Indicated
-                ? 'rgba(250, 204, 21, 0.45)'
-                : 'rgba(251, 146, 60, 0.4)';
+                ? 'rgba(250, 204, 21, 0.55)'
+                : 'rgba(251, 146, 60, 0.5)';
           ctx.fill();
         } else if (a > 0.12) {
           diamond(ctx, sx, sy);
-          ctx.fillStyle = `rgba(167, 108, 246, ${0.16 + a * 0.4})`; // prospective
+          ctx.fillStyle = `rgba(167, 108, 246, ${0.2 + a * 0.45})`;
           ctx.fill();
         } else if (k.soiled[i]) {
           diamond(ctx, sx, sy);
-          ctx.fillStyle = 'rgba(126, 148, 172, 0.18)'; // tested, quiet — also information
+          ctx.fillStyle = 'rgba(126, 148, 172, 0.2)';
           ctx.fill();
         }
       }
     }
   }
 
-  // Pit shell: faint fill, dashed boundary — drawn like a real pit design.
-  if (pitMask) {
+  // Pit shell.
+  if (pit) {
     for (let y = 0; y < MAP; y++) {
       for (let x = 0; x < MAP; x++) {
         const i = idx(x, y);
-        if (!pitMask[i]) continue;
+        if (!pit.mask[i]) continue;
         const t = world.tiles[i];
         const { sx, sy } = tileScreen(x, y, t.elev);
-        diamond(ctx, sx, sy);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-        ctx.fill();
         let boundary = false;
         for (let dy = -1; dy <= 1 && !boundary; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
-            if (!inMap(x + dx, y + dy) || !pitMask[idx(x + dx, y + dy)]) {
+            if (!inMap(x + dx, y + dy) || !pit.mask[idx(x + dx, y + dy)]) {
               boundary = true;
               break;
             }
           }
         }
-        if (boundary) {
-          ctx.setLineDash([5, 4]);
-          ctx.strokeStyle = 'rgba(245, 245, 240, 0.65)';
-          ctx.lineWidth = 1.5;
+        diamond(ctx, sx, sy);
+        if (pit.dug) {
+          // Excavated: benches at the rim, deeper floor inside.
+          ctx.fillStyle = boundary ? '#6b543c' : '#463526';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(20, 14, 9, 0.8)';
+          ctx.lineWidth = boundary ? 2 : 1;
           ctx.stroke();
-          ctx.setLineDash([]);
+        } else {
+          // Planned: faint wash + dashed rim, like a pit design drawing.
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+          ctx.fill();
+          if (boundary) {
+            ctx.setLineDash([5, 4]);
+            ctx.strokeStyle = 'rgba(245, 245, 240, 0.7)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
         }
       }
     }
   }
 
-  // Drill collars — chunky enough to spot across the room.
+  // Drill collars (skip ones swallowed by a dug pit).
   for (const hole of k.holes) {
+    if (pit?.dug && pit.mask[idx(hole.x, hole.y)]) continue;
     const t = world.tiles[idx(hole.x, hole.y)];
     const { sx, sy } = tileScreen(hole.x, hole.y, t.elev);
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(sx - 3, sy + TH / 2 - 1, 7, 3); // shadow
+    ctx.fillRect(sx - 3, sy + TH / 2 - 1, 7, 3);
+    ctx.fillStyle = OUTLINE;
+    ctx.fillRect(sx - 2, sy - 11, 5, 15);
     ctx.fillStyle = hole.tool === Tool.Diamond ? '#f4f4f2' : '#ffb84d';
     ctx.fillRect(sx - 1, sy - 10, 3, 13);
     ctx.fillRect(sx - 4, sy - 12, 9, 3);
   }
 
-  // Infrastructure — programmatic pixel buildings.
-  for (const b of buildings) {
-    const t = world.tiles[idx(b.x, b.y)];
-    const { sx, sy } = tileScreen(b.x, b.y, t.elev);
-    if (b.key === 'plant') {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(sx - 9, sy + TH / 2, 20, 3);
-      ctx.fillStyle = '#9aa0a8';
-      ctx.fillRect(sx - 8, sy - 4, 14, 11);
-      ctx.fillStyle = '#c8ccd2';
-      ctx.fillRect(sx - 8, sy - 6, 14, 3);
-      ctx.fillStyle = '#6b7078';
-      ctx.fillRect(sx + 7, sy - 13, 3, 17);
-      ctx.fillStyle = 'rgba(225,225,225,0.55)';
-      ctx.fillRect(sx + 6, sy - 17, 6, 3);
-    } else if (b.key === 'tsf') {
-      diamond(ctx, sx, sy);
-      ctx.fillStyle = '#7a6350';
-      ctx.fill();
-      ctx.strokeStyle = '#4c3d30';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      ctx.fillStyle = '#93826d';
-      ctx.beginPath();
-      ctx.ellipse(sx, sy + TH / 2, 8, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#d8c9a3';
-      ctx.fillRect(sx - 8, sy + 1, 7, 5);
-      ctx.fillRect(sx + 2, sy + 4, 7, 5);
-      ctx.fillStyle = '#8a7a55';
-      ctx.fillRect(sx - 8, sy - 1, 7, 3);
-      ctx.fillRect(sx + 2, sy + 2, 7, 3);
+  // Gold glints on high-confidence ground — the map twinkles where it pays.
+  if (showFindings) {
+    for (let y = 0; y < MAP; y++) {
+      for (let x = 0; x < MAP; x++) {
+        const i = idx(x, y);
+        if (k.cls[i] !== Cls.Measured && !(k.known[i] && k.est[i] > 2600)) continue;
+        if (pit?.dug && pit.mask[i]) continue;
+        const phase = (tick + x * 13 + y * 29) % 140;
+        if (phase >= 12) continue;
+        const t = world.tiles[i];
+        const { sx, sy } = tileScreen(x, y, t.elev);
+        const gx = sx + ((x * 7 + y * 3) % 9) - 4;
+        const gy = sy + 6 + ((x * 3 + y * 11) % 5) - 2;
+        const r = phase < 6 ? phase / 2 : (12 - phase) / 2;
+        ctx.strokeStyle = 'rgba(255, 244, 180, 0.95)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(gx - r * 2, gy);
+        ctx.lineTo(gx + r * 2, gy);
+        ctx.moveTo(gx, gy - r);
+        ctx.lineTo(gx, gy + r);
+        ctx.stroke();
+      }
     }
   }
 
-  // Planned programs: dashed outline + a little pennant on the tile.
+  // Buildings — big, chunky, outlined, on cleared pads (D-020).
+  for (const b of buildings) {
+    drawBuilding(ctx, world, b, tick);
+  }
+
+  // Planned programs: dashed claim + a little working rig.
   for (const p of planned) {
     const t = world.tiles[idx(p.x, p.y)];
     const { sx, sy } = tileScreen(p.x, p.y, t.elev);
@@ -306,19 +326,19 @@ export function render(
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.strokeStyle = '#e8c559';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy + 2);
-    ctx.lineTo(sx, sy - 12);
-    ctx.stroke();
-    ctx.fillStyle = '#f0c040';
-    ctx.beginPath();
-    ctx.moveTo(sx, sy - 12);
-    ctx.lineTo(sx + 9, sy - 9);
-    ctx.lineTo(sx, sy - 6);
-    ctx.closePath();
-    ctx.fill();
+    // Rig: outlined mast + skid, with pulsing dust.
+    ctx.fillStyle = OUTLINE;
+    ctx.fillRect(sx - 2, sy - 15, 6, 18);
+    ctx.fillStyle = '#e8c559';
+    ctx.fillRect(sx - 1, sy - 14, 4, 16);
+    ctx.fillStyle = OUTLINE;
+    ctx.fillRect(sx - 6, sy + 2, 13, 4);
+    if ((tick + p.x * 11) % 26 < 13) {
+      ctx.fillStyle = 'rgba(214, 190, 160, 0.75)';
+      ctx.beginPath();
+      ctx.arc(sx + 7, sy - 2 - ((tick + p.x * 11) % 13) / 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // Hover: AOE ghost + selected tile.
@@ -348,4 +368,118 @@ export function render(
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+}
+
+/** Cleared pad across the footprint + a chunky outlined structure on top. */
+function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, tick: number): void {
+  const def = defOf(b.key);
+  const elev = world.tiles[idx(b.x, b.y)].elev;
+
+  // Pad: one flat earthworks platform over the whole footprint.
+  const c0 = cornerScreen(b.x, b.y, elev);
+  const c1 = cornerScreen(b.x + def.w, b.y, elev);
+  const c2 = cornerScreen(b.x + def.w, b.y + def.h, elev);
+  const c3 = cornerScreen(b.x, b.y + def.h, elev);
+  ctx.beginPath();
+  ctx.moveTo(c0.sx, c0.sy);
+  ctx.lineTo(c1.sx, c1.sy);
+  ctx.lineTo(c2.sx, c2.sy);
+  ctx.lineTo(c3.sx, c3.sy);
+  ctx.closePath();
+  ctx.fillStyle = b.key === 'tsf' ? '#96794f' : b.key === 'camp' ? '#cdb98e' : '#b3b8bf';
+  ctx.fill();
+  ctx.strokeStyle = OUTLINE;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Footprint centre in screen space.
+  const mid = cornerScreen(b.x + def.w / 2, b.y + def.h / 2, elev);
+  const mx = mid.sx;
+  const my = mid.sy;
+
+  if (b.key === 'plant') {
+    // Mill shed.
+    outlinedRect(ctx, mx - 26, my - 26, 32, 22, '#8d939c');
+    outlinedRect(ctx, mx - 26, my - 31, 32, 6, '#c8ccd2'); // roof
+    // Ball mill cylinder.
+    outlinedRect(ctx, mx - 20, my - 9, 20, 8, '#7c828c');
+    // Stack with a red band.
+    outlinedRect(ctx, mx + 12, my - 40, 8, 38, '#6b7078');
+    ctx.fillStyle = '#c94f3f';
+    ctx.fillRect(mx + 13, my - 38, 6, 5);
+    // Conveyor to the ROM pad.
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(mx - 26, my - 6);
+    ctx.lineTo(mx - 44, my + 6);
+    ctx.stroke();
+    // Smoke — the plant is alive.
+    for (let i = 0; i < 3; i++) {
+      const puffY = (tick * 0.9 + i * 16) % 48;
+      const alpha = Math.max(0, 0.55 - puffY / 90);
+      ctx.fillStyle = `rgba(225, 225, 220, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(mx + 16 + Math.sin((tick + i * 20) / 14) * 3, my - 42 - puffY, 3 + puffY / 9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (b.key === 'tsf') {
+    // Embankment ring + process-water pond.
+    const inset = 0.3;
+    const p0 = cornerScreen(b.x + inset, b.y + inset, elev);
+    const p1 = cornerScreen(b.x + def.w - inset, b.y + inset, elev);
+    const p2 = cornerScreen(b.x + def.w - inset, b.y + def.h - inset, elev);
+    const p3 = cornerScreen(b.x + inset, b.y + def.h - inset, elev);
+    ctx.beginPath();
+    ctx.moveTo(p0.sx, p0.sy);
+    ctx.lineTo(p1.sx, p1.sy);
+    ctx.lineTo(p2.sx, p2.sy);
+    ctx.lineTo(p3.sx, p3.sy);
+    ctx.closePath();
+    ctx.fillStyle = '#3f7d8c';
+    ctx.fill();
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    // Pond shimmer.
+    ctx.strokeStyle = `rgba(210, 235, 240, ${0.25 + 0.2 * Math.sin(tick / 10)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mx - 12, my - 2);
+    ctx.lineTo(mx + 4, my - 6);
+    ctx.stroke();
+    // Discharge pipe.
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(mx, my - TH * 0.9);
+    ctx.lineTo(mx, my - TH * 1.6);
+    ctx.stroke();
+  } else {
+    // Camp: rows of dongas + the mess.
+    outlinedRect(ctx, mx - 26, my - 16, 14, 9, '#f2ede2');
+    outlinedRect(ctx, mx - 8, my - 13, 14, 9, '#f2ede2');
+    outlinedRect(ctx, mx + 10, my - 16, 14, 9, '#f2ede2');
+    ctx.fillStyle = '#7c6a48';
+    ctx.fillRect(mx - 26, my - 19, 14, 4);
+    ctx.fillRect(mx - 8, my - 16, 14, 4);
+    ctx.fillRect(mx + 10, my - 19, 14, 4);
+    // Flagpole.
+    ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(mx + 28, my - 8);
+    ctx.lineTo(mx + 28, my - 26);
+    ctx.stroke();
+    ctx.fillStyle = '#e8b60f';
+    ctx.fillRect(mx + 28, my - 26, 7, 4);
+  }
+}
+
+function outlinedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fill: string): void {
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = OUTLINE;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
 }
