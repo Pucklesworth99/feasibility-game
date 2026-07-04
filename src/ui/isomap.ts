@@ -112,11 +112,17 @@ function terrainFill(t: Terrain, elev: number): string {
     case Terrain.SaltLake:
       return shade(242, 235, 224, 0.96 + elev * 0.04);
     case Terrain.Creek:
-      return shade(74, 138, 74, k);
+      return shade(206, 182, 138, k); // dried sandy bed
     case Terrain.Workings:
       return shade(178, 100, 52, k);
     case Terrain.Heritage:
       return shade(164, 104, 82, k * 0.92);
+    case Terrain.Highway:
+      return shade(74, 74, 80, 1); // asphalt, flat-lit
+    case Terrain.OldPit:
+      return shade(122, 92, 62, k * 0.85);
+    case Terrain.Windmill:
+      return shade(196, 106, 54, k);
     default:
       return shade(196, 106, 54, k);
   }
@@ -134,6 +140,7 @@ export function render(
   pit: PitView | null,
   tick: number,
   heat?: HeatView | null,
+  flooded?: boolean,
 ): void {
   const { w, h } = canvasSize();
   ctx.fillStyle = '#0d0f13';
@@ -203,11 +210,84 @@ export function render(
         ctx.moveTo(sx + 3, sy + TH / 2 + 6);
         ctx.lineTo(sx + 10, sy + TH / 2 - 1);
         ctx.stroke();
-      } else if (t.terrain === Terrain.Creek && hash < 3) {
-        ctx.fillStyle = 'rgba(48, 66, 40, 1)';
-        ctx.fillRect(sx - 1 + (hash - 1) * 5, sy + 4, 3, 8);
-        ctx.fillStyle = 'rgba(104, 142, 76, 1)';
-        ctx.fillRect(sx - 6 + (hash - 1) * 5, sy + 1, 12, 6);
+      } else if (t.terrain === Terrain.Creek) {
+        if (flooded) {
+          // The creek remembers it's a creek.
+          diamond(ctx, sx, sy);
+          ctx.fillStyle = 'rgba(63, 125, 156, 0.88)';
+          ctx.fill();
+          ctx.strokeStyle = `rgba(210, 235, 240, ${0.3 + 0.25 * Math.sin(tick / 8 + x)})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(sx - 8, sy + TH / 2 + 2);
+          ctx.lineTo(sx + 6, sy + TH / 2 - 2);
+          ctx.stroke();
+        } else if (hash < 3) {
+          // Dry bed: cracked sand + a river gum hanging on.
+          ctx.strokeStyle = 'rgba(150, 128, 92, 0.8)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(sx - 7, sy + 8);
+          ctx.lineTo(sx + 2, sy + 11);
+          ctx.moveTo(sx - 1, sy + 5);
+          ctx.lineTo(sx + 7, sy + 9);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(240, 238, 230, 1)';
+          ctx.fillRect(sx - 1 + (hash - 1) * 5, sy + 3, 3, 9); // ghost-gum trunk
+          ctx.fillStyle = 'rgba(104, 142, 76, 1)';
+          ctx.fillRect(sx - 7 + (hash - 1) * 5, sy - 1, 14, 6);
+        }
+      } else if (t.terrain === Terrain.Highway) {
+        // Centreline dashes crawl nowhere — it's a highway, it just IS.
+        ctx.strokeStyle = '#e8c559';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 6]);
+        ctx.beginPath();
+        ctx.moveTo(sx - TW / 4, sy + TH / 4);
+        ctx.lineTo(sx + TW / 4, sy + (3 * TH) / 4);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (t.terrain === Terrain.OldPit) {
+        // Abandoned benches, a rusty relic, a sagging fence.
+        diamond(ctx, sx, sy);
+        ctx.strokeStyle = 'rgba(58, 42, 28, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(74, 56, 38, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + 5);
+        ctx.lineTo(sx + TW / 4, sy + TH / 2);
+        ctx.lineTo(sx, sy + TH - 5);
+        ctx.lineTo(sx - TW / 4, sy + TH / 2);
+        ctx.closePath();
+        ctx.stroke();
+        if (hash === 2) {
+          ctx.fillStyle = '#8a4a30'; // the rusted ute of legend
+          ctx.fillRect(sx - 4, sy + 9, 8, 4);
+        }
+      } else if (t.terrain === Terrain.Windmill) {
+        // Southern Cross windmill — spinning, obviously.
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(sx - 4, sy + 10);
+        ctx.lineTo(sx, sy - 14);
+        ctx.moveTo(sx + 4, sy + 10);
+        ctx.lineTo(sx, sy - 14);
+        ctx.stroke();
+        const ang = tick / 6;
+        ctx.strokeStyle = '#c8ccd2';
+        ctx.lineWidth = 2;
+        for (let b = 0; b < 6; b++) {
+          const a = ang + (b * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - 14);
+          ctx.lineTo(sx + Math.cos(a) * 7, sy - 14 + Math.sin(a) * 7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#c8ccd2';
+        ctx.fillRect(sx + 6, sy - 16, 5, 3); // tail vane
       }
 
       // Knowledge paint. Heat mode (Gate 1.5+): every tap paints — hits warm,

@@ -7,7 +7,7 @@
 
 import './style.css';
 import { generateWorld, idx, inMap, MAP, randomSeedName, Terrain, World } from './core/world';
-import { applyProgram, Knowledge, newKnowledge, Tool } from './core/survey';
+import { applyProgram, Knowledge, newKnowledge, terrainAccess, Tool } from './core/survey';
 import { Rng } from './core/rng';
 import {
   announce,
@@ -75,6 +75,7 @@ type Phase = 'explore' | 'place' | 'ops' | 'done';
 
 interface Ops {
   pool: number; // ounces left to mine
+  sterilizedOz: number; // ore the highway (etc.) is sitting on — unmineable
   poolStart: number;
   digOrder: number[]; // tile indices, richest-first
   dug: Uint8Array;
@@ -124,6 +125,9 @@ const AERO_MS = 2400;
 
 // Near-miss direction hint: a pulsing chevron pointing at the neighbour ore.
 let hint: { sx: number; sy: number; dx: number; dy: number; until: number } | null = null;
+
+// The creek floods during the rain event. WA: bone dry, then biblical.
+let floodUntil = 0;
 const heatWarm = new Float32Array(MAP * MAP);
 const heatCold = new Float32Array(MAP * MAP);
 
@@ -180,6 +184,7 @@ function newRun(seed: string): void {
   smokeShown.fill(0);
   aeroStart = performance.now();
   hint = null;
+  floodUntil = 0;
   window.setTimeout(() => banner('📡 AEROMAG SURVEY IN — drill into the purple smoke.'), 700);
   pushNews(market, `${S.world.companyName} lists at ${(market.price * 100).toFixed(1)}c. Champagne, then silence.`, 'company');
   const u = new URL(location.href);
@@ -283,8 +288,9 @@ function drillAt(x: number, y: number): void {
   if (S.drilling) return;
   const tile = S.world.tiles[idx(x, y)];
   const p = pagePos(x, y);
-  if (tile.terrain === Terrain.Heritage) {
-    floatText('Sacred ground. Not for sale.', p.x, p.y, 'quip');
+  const access = terrainAccess(tile.terrain);
+  if (!access.allowed) {
+    floatText(access.note!, p.x, p.y, 'quip');
     return;
   }
   if (S.ops?.dug[idx(x, y)]) {
@@ -295,13 +301,15 @@ function drillAt(x: number, y: number): void {
     floatText('Already drilled that one, boss.', p.x, p.y, 'quip');
     return;
   }
-  if (S.market.cash < HOLE_COST) {
+  const cost = HOLE_COST * access.costMult;
+  if (S.market.cash < cost) {
     say('💰 The Broker', 'Mate, you\'re skint. Tap RAISE — dilution builds character.');
     $('btn-raise').classList.add('attn');
     return;
   }
-  S.market.cash -= HOLE_COST;
-  S.market.spentExploration += HOLE_COST;
+  if (access.costMult !== 1 && access.note) floatText(access.note, p.x, p.y - 20, 'quip');
+  S.market.cash -= cost;
+  S.market.spentExploration += cost;
   S.holes++;
   S.drilling = { x, y, phase: 'slam', t0: performance.now() };
   sSlam();
@@ -600,13 +608,23 @@ function startOps(): void {
   S.phase = 'ops';
   const pit = truePit(S.world);
   const order: number[] = [];
-  for (let i = 0; i < pit.length; i++) if (pit[i]) order.push(i);
+  let sterilizedOz = 0;
+  for (let i = 0; i < pit.length; i++) {
+    if (!pit[i]) continue;
+    const terr = S.world.tiles[i].terrain;
+    if (terr === Terrain.Highway || terr === Terrain.Windmill) {
+      sterilizedOz += S.world.tiles[i].oz; // the pit stops at the bitumen
+      continue;
+    }
+    order.push(i);
+  }
   order.sort((a, b) => S.world.tiles[b].oz - S.world.tiles[a].oz);
   let pool = 0;
   for (const i of order) pool += S.world.tiles[i].oz;
 
   S.ops = {
     pool,
+    sterilizedOz,
     poolStart: pool,
     digOrder: order,
     dug: new Uint8Array(MAP * MAP),
@@ -683,8 +701,10 @@ function showRain(): void {
       <button class="btn btn-ghost" id="rain-wait">Wait it out</button>
     </div>`;
   news.classList.remove('hidden');
+  floodUntil = performance.now() + 12000; // the creek runs either way
   $('rain-pump').onclick = () => {
     S.market.cash -= 400_000;
+    floodUntil = performance.now() + 3500;
     news.classList.add('hidden');
     banner('Pumps roaring. The ducks file a complaint.');
     sClick();
@@ -693,7 +713,7 @@ function showRain(): void {
   $('rain-wait').onclick = () => {
     o.lastPour += 9000;
     news.classList.add('hidden');
-    banner('Pours paused while the pit drains. Patience is free. Sort of.');
+    banner('Pours paused while the creek runs. The ducks are having a lovely time.');
     sClick();
   };
 }
@@ -802,6 +822,7 @@ function endRun(): void {
     <div class="debrief">
       <div class="dt">The reconciliation</div>
       <p>${S.holes} holes drilled, ${S.holesHit} hit. ${escapeHtml(consultLine)}</p>
+      ${o.sterilizedOz > 15_000 ? `<p>${fmtOz(o.sterilizedOz)} sterilised under the highway. Main Roads sends its regards.</p>` : ''}
     </div>
     <div class="biz-card">
       <div class="bc-name">${escapeHtml(FIRM.gameName.toUpperCase())}</div>
@@ -985,11 +1006,13 @@ function escapeHtml(s: string): string {
 
 function draw(): void {
   const pit = S.ops ? { mask: S.ops.dug, dug: true } : S.phase === 'place' ? { mask: estimatedPit(S.k), dug: false } : null;
-  render(ctx, S.world, S.k, false, S.drilling || S.phase === 'place' ? null : S.hover, 0, [], S.buildings, pit, animTick, {
-    warm: heatWarm,
-    cold: heatCold,
-    smoke: smokeShown,
-  });
+  render(
+    ctx, S.world, S.k, false,
+    S.drilling || S.phase === 'place' ? null : S.hover,
+    0, [], S.buildings, pit, animTick,
+    { warm: heatWarm, cold: heatCold, smoke: smokeShown },
+    performance.now() < floodUntil,
+  );
 
   // Aeromag scanline sweeping the survey onto the map.
   const aeroT = performance.now() - aeroStart;

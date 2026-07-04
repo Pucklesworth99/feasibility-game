@@ -255,10 +255,19 @@ export function resourceTotals(k: Knowledge): ResourceTotals {
 /** Cost multiplier / permission for sampling a given terrain. */
 export function terrainAccess(t: Terrain): { allowed: boolean; costMult: number; note?: string } {
   if (t === Terrain.Heritage) {
-    return { allowed: false, costMult: 1, note: 'Heritage area — no ground disturbance without an agreement.' };
+    return { allowed: false, costMult: 1, note: 'Sacred ground. Not for sale.' };
+  }
+  if (t === Terrain.Highway) {
+    return { allowed: false, costMult: 1, note: 'Main Roads would like a word. No.' };
+  }
+  if (t === Terrain.Windmill) {
+    return { allowed: false, costMult: 1, note: 'Not the windmill. Have some respect.' };
+  }
+  if (t === Terrain.OldPit) {
+    return { allowed: true, costMult: 0.5, note: 'Old-timers loosened it for you — half price.' };
   }
   if (t === Terrain.SaltLake) {
-    return { allowed: true, costMult: 1.5, note: 'Salt lake — bog mats and pain. +50% program cost.' };
+    return { allowed: true, costMult: 1.5, note: 'Salt lake — bog mats and pain. +50% cost.' };
   }
   return { allowed: true, costMult: 1 };
 }

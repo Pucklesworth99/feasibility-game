@@ -92,6 +92,9 @@ export function canPlace(
     const terr = world.tiles[idx(t.x, t.y)].terrain;
     if (terr === Terrain.Heritage) return { ok: false, reason: 'Heritage area — nothing gets built here.' };
     if (terr === Terrain.Creek) return { ok: false, reason: "Part of the pad is in the creek. No." };
+    if (terr === Terrain.Highway) return { ok: false, reason: "That's the highway. Main Roads has feelings." };
+    if (terr === Terrain.OldPit) return { ok: false, reason: 'The old pit is a hole. Buildings dislike holes.' };
+    if (terr === Terrain.Windmill) return { ok: false, reason: 'The windmill was here first.' };
     if (occupiedBy(buildings, t.x, t.y)) return { ok: false, reason: 'Something is already built there.' };
     if (estPit[idx(t.x, t.y)]) {
       return { ok: false, reason: "That's inside the pit you've planned. The diggers would like that ground back." };

@@ -15,10 +15,57 @@ export const enum Terrain {
   Hill = 1,
   Outcrop = 2,
   SaltLake = 3,
-  Creek = 4,
+  Creek = 4, // dried watercourse — floods in the rain event
   Workings = 5,
   Heritage = 6,
+  Highway = 7, // sealed road — Main Roads says no
+  OldPit = 8, // abandoned working — half-price drilling, biased geology nearby
+  Windmill = 9, // decorative, sacred in its own way
 }
+
+/**
+ * The tenement is HAND-CRAFTED (one art-directed WA set piece — flat red
+ * dirt, a highway, a dried creek, salt lake, an abandoned pit); only the
+ * GEOLOGY is randomised per seed. Legend: . plain, O outcrop, S salt,
+ * C creek, H highway, W old workings, X heritage, P old pit, M windmill.
+ */
+const LAYOUT = [
+  '....................',
+  '......O.............',
+  '.....OO.......C.....',
+  'HHHHHHHHHHHHHHHHHHHH',
+  '..............C.....',
+  '.....X.......C......',
+  '....XX......C.......',
+  '...........C........',
+  '..O........C........',
+  '..OO......C.........',
+  '.M.......C..WPP.....',
+  '.........C...PP.....',
+  '........C...........',
+  '.......C............',
+  '......C.............',
+  'SS...C..............',
+  'SSS.C...............',
+  'SSSC................',
+  'SS.C................',
+  '...C................',
+];
+
+const LAYOUT_TERRAIN: Record<string, Terrain> = {
+  '.': Terrain.Plain,
+  O: Terrain.Outcrop,
+  S: Terrain.SaltLake,
+  C: Terrain.Creek,
+  H: Terrain.Highway,
+  W: Terrain.Workings,
+  X: Terrain.Heritage,
+  P: Terrain.OldPit,
+  M: Terrain.Windmill,
+};
+
+/** Centre of the abandoned pit — old-timers dug here for a reason. */
+export const OLD_PIT = { x: 13.5, y: 10.5 };
 
 export interface Tile {
   terrain: Terrain;
@@ -63,20 +110,27 @@ export function inMap(x: number, y: number): boolean {
 export function generateWorld(seed: string): World {
   const rng = new Rng(seed);
   const elevN = new ValueNoise2D(rng, MAP, MAP, 1 / 5);
-  const creekN = new ValueNoise2D(rng, MAP, MAP, 1 / 4);
   const oreN = new ValueNoise2D(rng, MAP, MAP, 1 / 3.5);
   const gradeN = new ValueNoise2D(rng, MAP, MAP, 1 / 3);
 
   const tiles: Tile[] = new Array(MAP * MAP);
 
-  // --- Terrain pass ---
+  // --- Terrain: the hand-crafted layout, WA-flat with micro-relief ---
+  const BASE_ELEV: Partial<Record<Terrain, number>> = {
+    [Terrain.Plain]: 0.3,
+    [Terrain.Outcrop]: 0.55,
+    [Terrain.SaltLake]: 0.1,
+    [Terrain.Creek]: 0.16,
+    [Terrain.Highway]: 0.3,
+    [Terrain.Workings]: 0.34,
+    [Terrain.Heritage]: 0.32,
+    [Terrain.OldPit]: 0.18,
+    [Terrain.Windmill]: 0.3,
+  };
   for (let y = 0; y < MAP; y++) {
     for (let x = 0; x < MAP; x++) {
-      const elev = elevN.at(x, y);
-      let terrain = Terrain.Plain;
-      if (elev > 0.72) terrain = Terrain.Hill;
-      else if (elev < 0.18) terrain = Terrain.SaltLake;
-      else if (Math.abs(creekN.at(x, y) - 0.5) < 0.022 && elev < 0.6) terrain = Terrain.Creek;
+      const terrain = LAYOUT_TERRAIN[LAYOUT[y][x]] ?? Terrain.Plain;
+      const elev = (BASE_ELEV[terrain] ?? 0.3) + elevN.at(x, y) * 0.12;
       tiles[idx(x, y)] = { terrain, elev, oz: 0, grade: 0, depth: 999 };
     }
   }
@@ -93,21 +147,22 @@ export function generateWorld(seed: string): World {
   const lenses: PlanLens[] = [];
 
   for (let s = 0; s < shearCount; s++) {
-    const baseX = rng.range(6, MAP - 6);
-    const baseY = rng.range(6, MAP - 6);
+    const brown = s === 0; // brownfields shear, biased to the old pit
+    const baseX = brown ? OLD_PIT.x + rng.gauss() * 2.2 : rng.range(5, MAP - 5);
+    const baseY = brown ? OLD_PIT.y + rng.gauss() * 2.2 : rng.range(5, MAP - 5);
     const lensCount = rng.int(2, 4);
     for (let l = 0; l < lensCount; l++) {
       const t = rng.range(-6, 6);
       const first = s === 0 && l === 0;
       lenses.push({
-        cx: baseX + dirX * t + rng.gauss() * 0.9,
-        cy: baseY + dirY * t + rng.gauss() * 0.9,
+        cx: Math.max(1, Math.min(MAP - 2, baseX + dirX * t + rng.gauss() * 0.9)),
+        cy: Math.max(1, Math.min(MAP - 2, baseY + dirY * t + rng.gauss() * 0.9)),
         halfA: rng.range(1.6, 3.4), // along strike
         halfB: rng.range(0.7, 1.4), // across strike
         peakOz: rng.range(12000, 40000),
-        // The first lens is always shallow-ish (old timers found SOMETHING);
+        // The first lens is shallow-ish (the old-timers got the top of it);
         // the rest can be blind and deep — that's what drilling is for.
-        depth: first ? rng.range(5, 55) : rng.range(10, 230),
+        depth: first ? rng.range(10, 70) : rng.range(10, 230),
       });
     }
   }
@@ -144,32 +199,7 @@ export function generateWorld(seed: string): World {
     }
   }
 
-  // --- Surface expression: clues where gold comes near surface ---
-  for (let y = 0; y < MAP; y++) {
-    for (let x = 0; x < MAP; x++) {
-      const tile = tiles[idx(x, y)];
-      if (tile.terrain === Terrain.SaltLake || tile.terrain === Terrain.Creek) continue;
-      if (tile.oz > 2400 && tile.depth < 25 && rng.next() < 0.55) tile.terrain = Terrain.Outcrop;
-      else if (tile.oz > 1200 && tile.depth < 45 && rng.next() < 0.35) tile.terrain = Terrain.Workings;
-    }
-  }
-
-  // --- Heritage exclusion areas: 1–2 blobs, sometimes inconveniently placed ---
-  const blobCount = rng.int(1, 2);
-  for (let b = 0; b < blobCount; b++) {
-    const bx = rng.int(3, MAP - 4);
-    const by = rng.int(3, MAP - 4);
-    const rad = rng.range(1.0, 2.0);
-    for (let y = 0; y < MAP; y++) {
-      for (let x = 0; x < MAP; x++) {
-        const d = Math.hypot(x - bx, y - by);
-        const tile = tiles[idx(x, y)];
-        if (d < rad && (tile.terrain === Terrain.Plain || tile.terrain === Terrain.Hill)) {
-          tile.terrain = Terrain.Heritage;
-        }
-      }
-    }
-  }
+  // (Surface clues, heritage, the pit, the highway: all fixed in LAYOUT.)
 
   // --- Aeromag: broad geophysical haze over the real trends, modulated by
   // noise, plus 2–3 false anomalies (magnetite, not gold — the classic trap).
