@@ -7,8 +7,8 @@
 
 import { Rng, ValueNoise2D } from './rng';
 
-export const MAP = 30; // tiles per side
-export const TILE_M = 50; // metres per tile → 1.5 km × 1.5 km tenement
+export const MAP = 20; // tiles per side — chunky, readable, every tap matters
+export const TILE_M = 75; // metres per tile → 1.5 km × 1.5 km tenement
 
 export const enum Terrain {
   Plain = 0,
@@ -60,9 +60,9 @@ export function inMap(x: number, y: number): boolean {
 
 export function generateWorld(seed: string): World {
   const rng = new Rng(seed);
-  const elevN = new ValueNoise2D(rng, MAP, MAP, 1 / 7);
-  const creekN = new ValueNoise2D(rng, MAP, MAP, 1 / 5);
-  const oreN = new ValueNoise2D(rng, MAP, MAP, 1 / 4);
+  const elevN = new ValueNoise2D(rng, MAP, MAP, 1 / 5);
+  const creekN = new ValueNoise2D(rng, MAP, MAP, 1 / 4);
+  const oreN = new ValueNoise2D(rng, MAP, MAP, 1 / 3.5);
 
   const tiles: Tile[] = new Array(MAP * MAP);
 
@@ -90,17 +90,17 @@ export function generateWorld(seed: string): World {
   const lenses: PlanLens[] = [];
 
   for (let s = 0; s < shearCount; s++) {
-    const baseX = rng.range(8, MAP - 8);
-    const baseY = rng.range(8, MAP - 8);
+    const baseX = rng.range(6, MAP - 6);
+    const baseY = rng.range(6, MAP - 6);
     const lensCount = rng.int(2, 3);
     for (let l = 0; l < lensCount; l++) {
-      const t = rng.range(-9, 9);
+      const t = rng.range(-6, 6);
       const first = s === 0 && l === 0;
       lenses.push({
-        cx: baseX + dirX * t + rng.gauss() * 1.2,
-        cy: baseY + dirY * t + rng.gauss() * 1.2,
-        halfA: rng.range(2.0, 4.5), // along strike
-        halfB: rng.range(0.8, 1.8), // across strike
+        cx: baseX + dirX * t + rng.gauss() * 0.9,
+        cy: baseY + dirY * t + rng.gauss() * 0.9,
+        halfA: rng.range(1.6, 3.4), // along strike
+        halfB: rng.range(0.7, 1.4), // across strike
         peakOz: rng.range(2500, 12000),
         // The first lens is always shallow-ish (old timers found SOMETHING);
         // the rest can be blind and deep — that's what drilling is for.
@@ -147,9 +147,9 @@ export function generateWorld(seed: string): World {
   // --- Heritage exclusion areas: 1–2 blobs, sometimes inconveniently placed ---
   const blobCount = rng.int(1, 2);
   for (let b = 0; b < blobCount; b++) {
-    const bx = rng.int(4, MAP - 5);
-    const by = rng.int(4, MAP - 5);
-    const rad = rng.range(1.2, 2.6);
+    const bx = rng.int(3, MAP - 4);
+    const by = rng.int(3, MAP - 4);
+    const rad = rng.range(1.0, 2.0);
     for (let y = 0; y < MAP; y++) {
       for (let x = 0; x < MAP; x++) {
         const d = Math.hypot(x - bx, y - by);

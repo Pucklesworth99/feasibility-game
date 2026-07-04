@@ -10,9 +10,9 @@ import { Knowledge, Tool } from '../core/survey';
 import { Cls } from '../core/estimate';
 import { defOf, Placed } from '../core/build';
 
-export const TW = 40; // tile width in internal px
-export const TH = 20; // tile height
-const LIFT = 20; // max elevation lift
+export const TW = 56; // tile width in internal px — 20×20 grid, chunky tiles
+export const TH = 28; // tile height
+const LIFT = 24; // max elevation lift
 const ORIGIN_X = (MAP * TW) / 2 + TW / 2;
 const ORIGIN_Y = LIFT + 10;
 const OUTLINE = '#221812';
@@ -20,6 +20,12 @@ const OUTLINE = '#221812';
 export interface PitView {
   mask: Uint8Array;
   dug: boolean; // false = planned outline, true = excavated benches
+}
+
+/** Continuous knowledge heat: warm = interpolated grade, cold = tested-and-empty. */
+export interface HeatView {
+  warm: Float32Array; // 0..1 per tile
+  cold: Float32Array; // 0..0.5 per tile
 }
 
 export function canvasSize(): { w: number; h: number } {
@@ -127,6 +133,7 @@ export function render(
   buildings: Placed[],
   pit: PitView | null,
   tick: number,
+  heat?: HeatView | null,
 ): void {
   const { w, h } = canvasSize();
   ctx.fillStyle = '#0d0f13';
@@ -203,9 +210,29 @@ export function render(
         ctx.fillRect(sx - 6 + (hash - 1) * 5, sy + 1, 12, 6);
       }
 
-      // The one knowledge ladder (D-017), louder (D-020).
+      // Knowledge paint. Heat mode (Gate 1.5+): every tap paints — hits warm,
+      // misses cold. Falls back to the class ladder when no heat is supplied.
       const i = idx(x, y);
-      if (showFindings) {
+      if (heat) {
+        const wv = heat.warm[i];
+        const cv = heat.cold[i];
+        if (wv > 0.02) {
+          diamond(ctx, sx, sy);
+          const g = Math.round(215 - wv * 150);
+          ctx.fillStyle = `rgba(255, ${g}, 28, ${0.22 + wv * 0.52})`;
+          ctx.fill();
+          if (wv > 0.65) {
+            // White-hot core on the richest ground.
+            diamond(ctx, sx, sy);
+            ctx.fillStyle = `rgba(255, 246, 200, ${(wv - 0.65) * 0.5})`;
+            ctx.fill();
+          }
+        } else if (cv > 0.02) {
+          diamond(ctx, sx, sy);
+          ctx.fillStyle = `rgba(96, 126, 156, ${0.1 + cv * 0.5})`;
+          ctx.fill();
+        }
+      } else if (showFindings) {
         const c = k.cls[i];
         const a = k.anomaly[i];
         if (c !== Cls.None) {
@@ -271,18 +298,29 @@ export function render(
     }
   }
 
-  // Drill collars (skip ones swallowed by a dug pit).
+  // Drill collars (skip ones swallowed by a dug pit). Hits and misses look
+  // different at a glance: gold marker vs. a grey stub — the map remembers.
   for (const hole of k.holes) {
     if (pit?.dug && pit.mask[idx(hole.x, hole.y)]) continue;
     const t = world.tiles[idx(hole.x, hole.y)];
     const { sx, sy } = tileScreen(hole.x, hole.y, t.elev);
+    const hit = k.est[idx(hole.x, hole.y)] > 250;
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(sx - 3, sy + TH / 2 - 1, 7, 3);
-    ctx.fillStyle = OUTLINE;
-    ctx.fillRect(sx - 2, sy - 11, 5, 15);
-    ctx.fillStyle = hole.tool === Tool.Diamond ? '#f4f4f2' : '#ffb84d';
-    ctx.fillRect(sx - 1, sy - 10, 3, 13);
-    ctx.fillRect(sx - 4, sy - 12, 9, 3);
+    ctx.fillRect(sx - 3, sy + TH / 2 - 1, 8, 3);
+    if (hit) {
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(sx - 2, sy - 13, 6, 18);
+      ctx.fillStyle = hole.tool === Tool.Diamond ? '#f4f4f2' : '#f0c040';
+      ctx.fillRect(sx - 1, sy - 12, 4, 16);
+      ctx.fillRect(sx - 5, sy - 14, 12, 3);
+      ctx.fillStyle = '#fff4b4';
+      ctx.fillRect(sx, sy - 9, 2, 2); // glint
+    } else {
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(sx - 2, sy - 5, 6, 9);
+      ctx.fillStyle = '#8a8f98';
+      ctx.fillRect(sx - 1, sy - 4, 4, 7);
+    }
   }
 
   // Gold glints on high-confidence ground — the map twinkles where it pays.

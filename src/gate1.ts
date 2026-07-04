@@ -5,7 +5,7 @@
  */
 
 import './style.css';
-import { generateWorld, idx, inMap, randomSeedName, Terrain, World } from './core/world';
+import { generateWorld, idx, inMap, MAP, randomSeedName, Terrain, World } from './core/world';
 import { applyProgram, Knowledge, newKnowledge, Tool } from './core/survey';
 import { canvasSize, pick, render, tileScreen } from './ui/isomap';
 import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray';
@@ -38,6 +38,35 @@ interface G1 {
 let S!: G1;
 let animTick = 0;
 
+// Continuous knowledge heat — recomputed after every hole. Hits paint warm
+// blobs whose shape suggests the trend; misses paint cold. Every tap teaches.
+const heatWarm = new Float32Array(MAP * MAP);
+const heatCold = new Float32Array(MAP * MAP);
+
+function recomputeHeat(): void {
+  heatWarm.fill(0);
+  heatCold.fill(0);
+  if (S.k.holes.length === 0) return;
+  for (let y = 0; y < MAP; y++) {
+    for (let x = 0; x < MAP; x++) {
+      let sw = 0;
+      let swv = 0;
+      for (const h of S.k.holes) {
+        const d = Math.hypot(h.x - x, h.y - y);
+        if (d > 4.5) continue;
+        const w = 1 / Math.pow(d + 0.5, 2);
+        sw += w;
+        swv += w * S.k.est[idx(h.x, h.y)];
+      }
+      if (sw < 0.045) continue;
+      const v = swv / sw;
+      const i = idx(x, y);
+      if (v > 250) heatWarm[i] = Math.min(1, v / 4500);
+      else heatCold[i] = Math.min(0.5, sw * 0.4);
+    }
+  }
+}
+
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('map');
 const ctx = canvas.getContext('2d')!;
@@ -67,6 +96,8 @@ function newRun(seed: string): void {
     hover: null,
     fingerDone: false,
   };
+  heatWarm.fill(0);
+  heatCold.fill(0);
   const u = new URL(location.href);
   u.searchParams.set('seed', seed);
   history.replaceState(null, '', u.toString());
@@ -82,8 +113,8 @@ function newRun(seed: string): void {
 function placeFinger(): void {
   const finger = $('finger');
   let target: { x: number; y: number } | null = null;
-  for (let y = 0; y < 30 && !target; y++) {
-    for (let x = 0; x < 30; x++) {
+  for (let y = 0; y < MAP && !target; y++) {
+    for (let x = 0; x < MAP; x++) {
       if (S.world.tiles[idx(x, y)].terrain === Terrain.Workings) {
         target = { x, y };
         break;
@@ -91,8 +122,8 @@ function placeFinger(): void {
     }
   }
   if (!target) {
-    for (let y = 0; y < 30 && !target; y++) {
-      for (let x = 0; x < 30; x++) {
+    for (let y = 0; y < MAP && !target; y++) {
+      for (let x = 0; x < MAP; x++) {
         if (S.world.tiles[idx(x, y)].terrain === Terrain.Outcrop) {
           target = { x, y };
           break;
@@ -100,7 +131,7 @@ function placeFinger(): void {
       }
     }
   }
-  if (!target) target = { x: 15, y: 15 };
+  if (!target) target = { x: MAP >> 1, y: MAP >> 1 };
   const p = pagePos(target.x, target.y);
   finger.style.left = `${p.x - 14}px`;
   finger.style.top = `${p.y + 6}px`;
@@ -222,6 +253,7 @@ function resolve(x: number, y: number): void {
           }
         }
       }
+      recomputeHeat();
       hud();
       draw();
       if (S.cash < HOLE_COST) window.setTimeout(showBroke, 1400);
@@ -252,7 +284,10 @@ function hud(): void {
 }
 
 function draw(): void {
-  render(ctx, S.world, S.k, true, S.drilling ? null : S.hover, 0, [], [], null, animTick);
+  render(ctx, S.world, S.k, false, S.drilling ? null : S.hover, 0, [], [], null, animTick, {
+    warm: heatWarm,
+    cold: heatCold,
+  });
   if (S.drilling) {
     const d = S.drilling;
     const t = S.world.tiles[idx(d.x, d.y)];
