@@ -262,9 +262,28 @@ export function render(
         ctx.lineTo(sx - TW / 4, sy + TH / 2);
         ctx.closePath();
         ctx.stroke();
-        if (hash === 2) {
-          ctx.fillStyle = '#8a4a30'; // the rusted ute of legend
-          ctx.fillRect(sx - 4, sy + 9, 8, 4);
+        if (x === 13 && y === 10) {
+          // The rusted ute of legend, and its resident crow.
+          ctx.fillStyle = OUTLINE;
+          ctx.fillRect(sx - 5, sy + 8, 11, 5);
+          ctx.fillStyle = '#8a4a30';
+          ctx.fillRect(sx - 4, sy + 9, 9, 3);
+          ctx.fillStyle = '#6e3a24';
+          ctx.fillRect(sx + 2, sy + 6, 3, 3); // cab
+          const peck = tick % 55 < 9;
+          ctx.fillStyle = '#15130f';
+          ctx.fillRect(sx - 3, peck ? sy + 6 : sy + 4, 3, 3); // crow
+          ctx.fillRect(sx - 1, peck ? sy + 8 : sy + 3, 2, 1); // beak down/up
+        }
+      } else if (t.terrain === Terrain.SaltLake) {
+        if (hash < 2) {
+          // Heat shimmer off the salt.
+          ctx.strokeStyle = `rgba(255,255,255,${0.22 + 0.2 * Math.sin(tick / 7 + x * 2)})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(sx - 8, sy + TH / 2 + 3);
+          ctx.quadraticCurveTo(sx, sy + TH / 2 - 2 + Math.sin(tick / 9 + y) * 2, sx + 8, sy + TH / 2 + 3);
+          ctx.stroke();
         }
       } else if (t.terrain === Terrain.Windmill) {
         // Southern Cross windmill — spinning, obviously.

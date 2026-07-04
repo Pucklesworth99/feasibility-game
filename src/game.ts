@@ -128,6 +128,10 @@ let hint: { sx: number; sy: number; dx: number; dy: number; until: number } | nu
 
 // The creek floods during the rain event. WA: bone dry, then biblical.
 let floodUntil = 0;
+
+// Idle detection: flies gather, the Geo gets impatient.
+let lastTapAt = performance.now();
+let idleQuipDone = false;
 const heatWarm = new Float32Array(MAP * MAP);
 const heatCold = new Float32Array(MAP * MAP);
 
@@ -277,6 +281,8 @@ function recomputeHeat(): void {
 
 function onTap(x: number, y: number): void {
   if (S.over) return;
+  lastTapAt = performance.now();
+  idleQuipDone = false;
   if (S.phase === 'place') {
     tryPlace(x, y);
     return;
@@ -1148,7 +1154,9 @@ function draw(): void {
     }
   }
 
+  drawStation();
   drawCritters();
+  drawIdleFlies();
 
   // Haul trucks — the hypnosis. Pit ↔ plant, loaded one way.
   if (S.phase === 'ops' && S.ops && S.buildings.length) {
@@ -1192,27 +1200,86 @@ function draw(): void {
   }
 }
 
+// ---------- Station life: cattle by the windmill, flies when you idle ----------
+
+function drawStation(): void {
+  const O = '#221812';
+  const wm = tileScreen(1, 10, S.world.tiles[idx(1, 10)].elev);
+  const cow = (ox: number, oy: number, ph: number, patch: boolean): void => {
+    const cx = wm.sx + ox;
+    const cy = wm.sy + oy;
+    const grazing = Math.floor((animTick + ph) / 30) % 3 !== 0;
+    ctx.fillStyle = O;
+    ctx.fillRect(cx - 6, cy - 7, 13, 8);
+    ctx.fillStyle = '#8a6b4f';
+    ctx.fillRect(cx - 5, cy - 6, 11, 6);
+    if (patch) {
+      ctx.fillStyle = '#e8e2d4';
+      ctx.fillRect(cx - 2, cy - 6, 4, 4);
+    }
+    ctx.fillStyle = O; // head — down grazing, up chewing
+    ctx.fillRect(cx + 6, grazing ? cy - 3 : cy - 9, 4, 4);
+    ctx.fillRect(cx - 6, cy + 1, 2, 3); // legs
+    ctx.fillRect(cx + 3, cy + 1, 2, 3);
+    if ((animTick + ph) % 45 < 5) {
+      ctx.strokeStyle = O; // tail flick
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, cy - 5);
+      ctx.lineTo(cx - 10, cy - 8);
+      ctx.stroke();
+    }
+  };
+  cow(-20, 20, 0, true);
+  cow(18, 14, 17, false);
+}
+
+function drawIdleFlies(): void {
+  if (S.over || S.phase !== 'explore') return;
+  const idle = performance.now() - lastTapAt;
+  if (idle < 20000) return;
+  const anchor = S.fingerDone ? { x: MAP >> 1, y: MAP >> 1 } : S.fingerTarget;
+  const t = S.world.tiles[idx(anchor.x, anchor.y)];
+  const { sx, sy } = tileScreen(anchor.x, anchor.y, t.elev);
+  ctx.fillStyle = '#15130f';
+  for (let i = 0; i < 3; i++) {
+    const a = animTick / 4 + i * 2.1;
+    ctx.fillRect(sx + Math.cos(a) * (9 + i * 3), sy - 6 + Math.sin(a * 1.4) * 6, 2, 2);
+  }
+  if (!idleQuipDone) {
+    idleQuipDone = true;
+    say('🧭 The Geo', 'You gonna drill or what? The flies are forming a committee.');
+  }
+}
+
 // ---------- Ambient critters: roos, willy-willies, galahs ----------
 
 interface Critter {
-  kind: 'roo' | 'willy' | 'galahs';
-  x: number; // internal canvas px
+  kind: 'roo' | 'willy' | 'galahs' | 'emus' | 'roadtrain';
+  x: number; // canvas px — except the road train, which counts highway tiles
   y: number;
   born: number;
 }
 
 let critters: Critter[] = [];
+let nextRoadTrain = performance.now() + 12000;
 
 function maybeSpawnCritter(): void {
-  if (critters.length >= 2 || Math.random() > 0.008) return;
-  const kinds: Critter['kind'][] = ['roo', 'roo', 'willy', 'galahs']; // roos are the star
+  // The road train keeps its own schedule. Like all road trains.
+  const now = performance.now();
+  if (now > nextRoadTrain) {
+    critters.push({ kind: 'roadtrain', x: -3.5, y: 0, born: now });
+    nextRoadTrain = now + 30000 + Math.random() * 25000;
+  }
+  if (critters.length >= 3 || Math.random() > 0.008) return;
+  const kinds: Critter['kind'][] = ['roo', 'roo', 'emus', 'willy', 'galahs'];
   const kind = kinds[Math.floor(Math.random() * kinds.length)];
   const { w } = canvasSize();
   critters.push({
     kind,
     x: kind === 'galahs' ? -30 : w + 20,
     y: kind === 'galahs' ? 24 + Math.random() * 60 : 240 + Math.random() * 300,
-    born: performance.now(),
+    born: now,
   });
 }
 
@@ -1249,6 +1316,74 @@ function drawCritters(): void {
         ctx.beginPath();
         ctx.arc(c.x + 6, c.y + 3, 2.5, 0, Math.PI * 2);
         ctx.fill();
+      }
+    } else if (c.kind === 'roadtrain') {
+      // Prime mover + three trailers, thundering down the highway (row 3).
+      c.x += 0.17;
+      if (c.x > MAP + 4.5) {
+        c.born = 0; // culled next frame
+        continue;
+      }
+      const unit = (t: number, isCab: boolean): void => {
+        const ux = 588 + (t - 3) * 28;
+        const uy = 34 + (t + 3) * 14 - 14;
+        ctx.fillStyle = O;
+        ctx.fillRect(ux - 11, uy - 6, 24, 11);
+        ctx.fillStyle = isCab ? '#c94f3f' : '#c8ccd2';
+        ctx.fillRect(ux - 10, uy - 5, 22, 9);
+        if (isCab) {
+          ctx.fillStyle = '#3a3f47';
+          ctx.fillRect(ux + 5, uy - 4, 5, 4); // windscreen
+          ctx.fillStyle = O;
+          ctx.fillRect(ux + 1, uy - 11, 2, 6); // exhaust stack
+          ctx.fillStyle = 'rgba(120,120,118,0.5)';
+          ctx.beginPath();
+          ctx.arc(ux + 2, uy - 15 - (age % 400) / 60, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#111';
+        for (const wx of [-7, 0, 7]) {
+          ctx.beginPath();
+          ctx.arc(ux + wx, uy + 5, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      };
+      for (let u = 3; u >= 1; u--) unit(c.x - u * 1.05, false);
+      unit(c.x, true);
+      // Dust plume off the back.
+      ctx.fillStyle = 'rgba(214,190,160,0.45)';
+      ctx.beginPath();
+      ctx.arc(588 + (c.x - 4.4 - 3) * 28, 34 + (c.x - 4.4 + 3) * 14 - 10, 4 + (age % 300) / 90, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (c.kind === 'emus') {
+      // A file of emus: small bodies, periscope necks, ridiculous legs.
+      c.x -= 2.4;
+      for (let i = 0; i < 3; i++) {
+        const bx = c.x + i * 17;
+        const by = c.y + (i % 2) * 3;
+        const step = Math.floor((age / 110 + i) % 2) === 0;
+        ctx.fillStyle = O;
+        ctx.fillRect(bx - 5, by - 15, 11, 8); // body outline
+        ctx.fillStyle = '#7a6a58';
+        ctx.fillRect(bx - 4, by - 14, 9, 6);
+        ctx.fillStyle = O; // neck + head, always suspicious
+        ctx.fillRect(bx - 4, by - 24, 2, 10);
+        ctx.fillRect(bx - 6, by - 25, 4, 3);
+        ctx.strokeStyle = O; // the legs
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (step) {
+          ctx.moveTo(bx - 2, by - 8);
+          ctx.lineTo(bx - 5, by);
+          ctx.moveTo(bx + 2, by - 8);
+          ctx.lineTo(bx + 4, by - 1);
+        } else {
+          ctx.moveTo(bx - 2, by - 8);
+          ctx.lineTo(bx - 1, by);
+          ctx.moveTo(bx + 2, by - 8);
+          ctx.lineTo(bx + 6, by - 2);
+        }
+        ctx.stroke();
       }
     } else if (c.kind === 'willy') {
       c.x -= 1.1;
