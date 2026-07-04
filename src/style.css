@@ -767,6 +767,220 @@ body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* ---------- Gate 1: Core Tray & drill juice ---------- */
+
+.g1-bar { align-items: center; }
+
+.g1-cash, .g1-oz {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.g1-cash .k, .g1-oz .k {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.g1-cash .v, .g1-oz .v {
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.g1-oz .v.gold { color: var(--gold-bright); }
+
+.meter {
+  height: 7px;
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.g1-meter { width: 150px; margin-top: 3px; }
+
+.meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), var(--gold-bright));
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* The Core Tray */
+
+.tray {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(20, 22, 27, 0.96);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  z-index: 40;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.25s, transform 0.25s;
+}
+
+.tray.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(30px);
+  pointer-events: none;
+}
+
+.tray.tray-gold {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 28px rgba(240, 192, 64, 0.45), 0 10px 40px rgba(0, 0, 0, 0.55);
+}
+
+.tray-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.core-seg {
+  width: 50px;
+  height: 28px;
+  border: 2px solid #221812;
+  border-radius: 5px;
+  background: #31353c;
+  transform: rotateX(88deg);
+  transition: transform 0.11s ease-out;
+}
+
+.core-seg.revealed { transform: rotateX(0deg); }
+
+.seg-rock {
+  background: linear-gradient(105deg, #6d5b47 0 28%, #7c6a52 28% 52%, #5f5140 52% 78%, #71604b 78%);
+}
+
+.seg-rock2 {
+  background: linear-gradient(105deg, #62676f 0 30%, #71767e 30% 58%, #565b63 58% 82%, #6a6f77 82%);
+}
+
+.seg-gold {
+  background:
+    radial-gradient(circle at 30% 35%, rgba(255,255,255,0.85) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 60%, rgba(255,255,255,0.7) 0 1.5px, transparent 2.5px),
+    linear-gradient(105deg, #f7d24a 0 40%, #d4a018 40% 70%, #f0c040 70%);
+  animation: gold-pop 0.35s ease;
+  box-shadow: 0 0 14px rgba(240, 192, 64, 0.7);
+}
+
+@keyframes gold-pop {
+  0% { transform: rotateX(0) scale(1); }
+  40% { transform: rotateX(0) scale(1.3); }
+  100% { transform: rotateX(0) scale(1); }
+}
+
+.seg-fleck {
+  background:
+    linear-gradient(115deg, transparent 0 62%, #f0c040 62% 66%, transparent 66%),
+    linear-gradient(105deg, #62676f 0 30%, #71767e 30% 58%, #565b63 58% 82%, #6a6f77 82%);
+}
+
+/* Grade stamp */
+
+.stamp {
+  position: fixed;
+  top: 38%;
+  left: 50%;
+  color: var(--gold-bright);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-shadow: 0 3px 0 #221812, 0 0 30px rgba(240, 192, 64, 0.5);
+  z-index: 60;
+  pointer-events: none;
+  animation: stamp-in 1.3s cubic-bezier(.2,1.4,.4,1) forwards;
+  white-space: nowrap;
+}
+
+@keyframes stamp-in {
+  0% { transform: translate(-50%, -50%) scale(2.8) rotate(-7deg); opacity: 0; }
+  18% { transform: translate(-50%, -50%) scale(1) rotate(-3deg); opacity: 1; }
+  75% { transform: translate(-50%, -50%) scale(1) rotate(-3deg); opacity: 1; }
+  100% { transform: translate(-50%, -55%) scale(0.95) rotate(-3deg); opacity: 0; }
+}
+
+/* Floating texts & nuggets */
+
+.float-text {
+  position: fixed;
+  transform: translateX(-50%);
+  font-size: 15px;
+  font-weight: 800;
+  z-index: 55;
+  pointer-events: none;
+  animation: float-up 1.5s ease-out forwards;
+  white-space: nowrap;
+}
+
+.float-text.bad-text { color: var(--red); }
+.float-text.gold-text { color: var(--gold-bright); }
+
+.float-text.quip {
+  color: var(--muted);
+  font-weight: 600;
+  font-style: italic;
+  font-size: 13px;
+}
+
+@keyframes float-up {
+  0% { opacity: 0; margin-top: 6px; }
+  12% { opacity: 1; margin-top: 0; }
+  80% { opacity: 1; }
+  100% { opacity: 0; margin-top: -34px; }
+}
+
+.nugget {
+  position: fixed;
+  width: 9px;
+  height: 9px;
+  background: linear-gradient(135deg, #f7d24a, #d4a018);
+  border: 1.5px solid #221812;
+  border-radius: 3px;
+  z-index: 65;
+  pointer-events: none;
+}
+
+/* The finger */
+
+.finger {
+  position: fixed;
+  z-index: 30;
+  font-size: 34px;
+  pointer-events: none;
+  animation: finger-bob 0.9s ease-in-out infinite;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.finger.hidden { display: none; }
+
+.finger-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--gold-bright);
+  text-shadow: 0 1px 0 #221812;
+}
+
+@keyframes finger-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+
+.broke-modal { max-width: 380px; text-align: center; }
+.broke-modal h2 { color: var(--red); letter-spacing: 0.06em; }
+
 /* ---------- Juice ---------- */
 
 .btn-mute {

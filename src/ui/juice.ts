@@ -62,6 +62,55 @@ export function sClick(): void {
   tone(880, 0, 0.045, 'square', 0.025);
 }
 
+/** Filtered noise burst — the workhorse of drill sounds. */
+function noiseBurst(dur: number, gain: number, freq: number): void {
+  if (muted) return;
+  try {
+    const c = ac();
+    const len = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = freq;
+    f.Q.value = 0.8;
+    const g = c.createGain();
+    g.gain.setValueAtTime(gain, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    src.connect(f).connect(g).connect(c.destination);
+    src.start();
+  } catch {
+    /* no audio — fine */
+  }
+}
+
+/** Rig slams onto the pad. */
+export function sSlam(): void {
+  tone(85, 0, 0.13, 'square', 0.09);
+  noiseBurst(0.09, 0.05, 180);
+}
+
+/** The rods turning — rattly, industrial. */
+export function sRattle(): void {
+  noiseBurst(0.55, 0.045, 300);
+  for (let i = 0; i < 6; i++) tone(140 + (i % 2) * 40, i * 0.09, 0.05, 'sawtooth', 0.02);
+}
+
+/** Core-tray segment flip. */
+export function sTick(): void {
+  tone(1150, 0, 0.03, 'square', 0.02);
+}
+
+/** Gold sting — pitch and length scale with grade. */
+export function sSting(grade: number): void {
+  const base = 480 + Math.min(8, grade) * 70;
+  [1, 1.26, 1.5].forEach((m, i) => tone(base * m, i * 0.07, 0.16, 'triangle', 0.07));
+  if (grade > 4.5) tone(base * 2, 0.24, 0.3, 'sine', 0.06);
+}
+
 /** Shake the whole app for a beat. */
 export function shake(): void {
   const app = document.getElementById('app');
