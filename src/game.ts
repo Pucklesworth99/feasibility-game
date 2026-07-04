@@ -105,11 +105,14 @@ interface S4 {
   ops: Ops | null;
   fingerDone: boolean;
   over: boolean;
+  flags: { taughtAnnounce: boolean; taughtBank: boolean; takeover: boolean; rain: boolean };
 }
 
 let S!: S4;
 let mktRng!: Rng;
 let animTick = 0;
+let prevMsDone = -1; // milestone fanfare tracker
+const EMPTY_PIT = new Uint8Array(MAP * MAP); // placement relaxation (softlock guard)
 const heatWarm = new Float32Array(MAP * MAP);
 const heatCold = new Float32Array(MAP * MAP);
 
@@ -155,7 +158,9 @@ function newRun(seed: string): void {
     ops: null,
     fingerDone: false,
     over: false,
+    flags: { taughtAnnounce: false, taughtBank: false, takeover: false, rain: false },
   };
+  prevMsDone = -1;
   heatWarm.fill(0);
   heatCold.fill(0);
   pushNews(market, `${S.world.companyName} lists at ${(market.price * 100).toFixed(1)}c. Champagne, then silence.`, 'company');
@@ -341,6 +346,13 @@ function resolveHole(x: number, y: number): void {
         S.foundOz += est;
         S.holesHit++;
         S.bestGradeInHand = Math.max(S.bestGradeInHand, tile.grade);
+        if (!S.flags.taughtAnnounce && S.foundOz > 2000) {
+          S.flags.taughtAnnounce = true;
+          window.setTimeout(
+            () => say('🧭 The Geo', 'Beauty. Now tap 📢 ANNOUNCE — the market only pays for ounces it knows about.'),
+            1700,
+          );
+        }
         if (bonanza) {
           gradeStamp(`BONANZA! ${tile.grade.toFixed(0)} g/t`, tile.grade);
           flyNuggets(p.x, p.y, $('stat-oz'), 24);
@@ -397,6 +409,11 @@ function doAnnounce(loud: boolean): void {
   if (loud) shake();
   banner(loud ? `"BONANZA GOLD AT ${S.world.seed}!" — the market inhales` : `${S.world.seed}: +${fmtOz(delta)} announced. Sober fonts, big number.`);
   if (S.market.sentiment > 0.3) window.setTimeout(() => say('📈 The Broker', 'Mate. MATE. Raise now.'), 1200);
+  const a = S.market.announced;
+  if (!S.flags.taughtBank && !S.funded && a.measured + a.indicated + a.inferred >= RESOURCE_OZ) {
+    S.flags.taughtBank = true;
+    window.setTimeout(() => say('🏦 The Banker', "Now THAT's a resource. My door is open — tap FUND IT."), 2400);
+  }
   hud();
 }
 
@@ -494,28 +511,46 @@ function promptPlacement(): void {
     def.key === 'tsf' ? 'Keep that thing AWAY from my creek.' : `${def.name}: ${def.w}×${def.h} pad. Tap the ground.`);
 }
 
-function tryPlace(x: number, y: number): void {
-  const def = currentBuilding();
-  const estPit = estimatedPit(S.k);
-  const fit = canPlace(S.world, estPit, S.buildings, def, x, y);
-  const p = pagePos(x, y);
-  if (!fit.ok) {
-    floatText(fit.reason!, p.x, p.y, 'quip');
-    sThud();
-    return;
+function anyAnchorFits(def: BuildingDef, estPit: Uint8Array): boolean {
+  for (let y = 0; y < MAP; y++) {
+    for (let x = 0; x < MAP; x++) {
+      if (canPlace(S.world, estPit, S.buildings, def, x, y).ok) return true;
+    }
   }
+  return false;
+}
+
+function commitPlacement(def: BuildingDef, x: number, y: number): void {
+  const p = pagePos(x, y);
   S.buildings.push({ key: def.key, x, y });
   sSlam();
   shake();
   floatText(`${def.name} ✓`, p.x, p.y - 10, 'gold-text');
   S.placeIdx++;
-  if (S.placeIdx >= BUILDINGS.length) {
-    startOps();
-  } else {
-    promptPlacement();
-  }
+  if (S.placeIdx >= BUILDINGS.length) startOps();
+  else promptPlacement();
   hud();
   draw();
+}
+
+function tryPlace(x: number, y: number): void {
+  const def = currentBuilding();
+  const estPit = estimatedPit(S.k);
+  const fit = canPlace(S.world, estPit, S.buildings, def, x, y);
+  if (fit.ok) {
+    commitPlacement(def, x, y);
+    return;
+  }
+  // Softlock guard: if NO anchor on the map satisfies the pit-line rule,
+  // waive it rather than trap the player on a tight tenement.
+  if (!anyAnchorFits(def, estPit) && canPlace(S.world, EMPTY_PIT, S.buildings, def, x, y).ok) {
+    banner('Tight ground — the pit-line restriction is waived for this pad.');
+    commitPlacement(def, x, y);
+    return;
+  }
+  const p = pagePos(x, y);
+  floatText(fit.reason!, p.x, p.y, 'quip');
+  sThud();
 }
 
 // ---------- OPERATE: the living diorama ----------
@@ -567,7 +602,7 @@ function startOps(): void {
 
 function opsTick(now: number): void {
   const o = S.ops;
-  if (!o || S.phase !== 'ops') return;
+  if (!o || S.phase !== 'ops' || S.over) return;
 
   // The pit eats another tile.
   if (now - o.lastDig > DIG_EVERY_MS && o.digCursor < o.digOrder.length) {
@@ -583,7 +618,70 @@ function opsTick(now: number): void {
     o.lastPour = now;
   }
 
+  // Mid-ops drama: one takeover whisper, one weather event, per run.
+  if (!S.flags.rain && o.pool < o.poolStart * 0.8) {
+    S.flags.rain = true;
+    if (mktRng.next() < 0.8) showRain();
+  }
+  if (!S.flags.takeover && o.pool < o.poolStart * 0.55) {
+    S.flags.takeover = true;
+    if (mktRng.next() < 0.7) showTakeover();
+  }
+
   if (o.pool <= 500 && !S.over) endRun();
+}
+
+function showRain(): void {
+  const o = S.ops!;
+  const news = $('newsflash');
+  news.innerHTML = `
+    <div class="nf-title">📰 UNSEASONAL RAIN</div>
+    <p>The pit is now a swimming pool with opinions. The ducks are thrilled. Production is not.</p>
+    <div class="nf-actions">
+      <button class="btn" id="rain-pump">Hire pumps — $400k</button>
+      <button class="btn btn-ghost" id="rain-wait">Wait it out</button>
+    </div>`;
+  news.classList.remove('hidden');
+  $('rain-pump').onclick = () => {
+    S.market.cash -= 400_000;
+    news.classList.add('hidden');
+    banner('Pumps roaring. The ducks file a complaint.');
+    sClick();
+    hud();
+  };
+  $('rain-wait').onclick = () => {
+    o.lastPour += 9000;
+    news.classList.add('hidden');
+    banner('Pours paused while the pit drains. Patience is free. Sort of.');
+    sClick();
+  };
+}
+
+function showTakeover(): void {
+  const offer = marketCap(S.market) * 0.4;
+  const news = $('newsflash');
+  news.innerHTML = `
+    <div class="nf-title">📰 TAKEOVER OFFER</div>
+    <p>A mid-tier slides a term sheet across the table: <b>${fmtMoney(offer)}</b> cash, right now, for the lot. Their geologist won't stop smiling.</p>
+    <div class="nf-actions">
+      <button class="btn btn-promo" id="tk-take">Take the money</button>
+      <button class="btn btn-ghost" id="tk-no">We're worth more</button>
+    </div>`;
+  news.classList.remove('hidden');
+  $('tk-take').onclick = () => {
+    news.classList.add('hidden');
+    S.market.cash += offer;
+    banner('SOLD. The premium banks. The geologist is still smiling — try not to think about it.');
+    sKaching();
+    endRun();
+  };
+  $('tk-no').onclick = () => {
+    news.classList.add('hidden');
+    S.market.sentiment += 0.12;
+    banner('Board rejects the takeover. The register dreams bigger.');
+    sClick();
+    hud();
+  };
 }
 
 function spawnPour(): void {
@@ -625,6 +723,8 @@ function spawnPour(): void {
 
 function endRun(): void {
   S.over = true;
+  $('newsflash').classList.add('hidden');
+  document.querySelectorAll('.pour').forEach((e) => e.remove());
   const o = S.ops!;
   const truth = generateTruth(S.world.seed);
   const est = S.consultant ? Math.min(0.97, truth.met * (1 + 0.15 * (S.consultant.key === 'cheap' ? 1 : S.consultant.key === 'standard' ? 0.3 : 0.05))) : 0.92;
@@ -674,6 +774,7 @@ function endRun(): void {
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="btn-again">NEW TENEMENT ▶</button>
+      <button class="btn" id="btn-card">📸 Share card</button>
       <button class="btn" id="btn-share">Copy result</button>
     </div>`;
   $('overlay').classList.remove('hidden');
@@ -696,10 +797,54 @@ function endRun(): void {
     };
   });
   $('btn-again').onclick = () => newRun(randomSeedName(Math.random()));
+  $('btn-card').onclick = () => downloadShareCard(rank, finalValue, o.minedOz);
   $('btn-share').onclick = () => {
     const text = `${S.world.companyName}: found ${fmtOz(S.foundOz)}, poured ${fmtOz(o.minedOz)}, worth ${fmtMoney(finalValue)} — rank ${rank}. Beat me on the same ground: ${shareUrl.toString()}`;
     navigator.clipboard.writeText(text).then(() => banner('Result copied — go start an argument.'));
   };
+}
+
+/** PNG share card: dark, gold, a live snapshot of THEIR map. LinkedIn bait. */
+function downloadShareCard(rank: string, finalValue: number, minedOz: number): void {
+  const card = document.createElement('canvas');
+  card.width = 900;
+  card.height = 470;
+  const c = card.getContext('2d')!;
+  c.fillStyle = '#101216';
+  c.fillRect(0, 0, 900, 470);
+  c.globalAlpha = 0.92;
+  c.drawImage(canvas, 430, 42, 440, 236);
+  c.globalAlpha = 1;
+  c.strokeStyle = '#2a2f3a';
+  c.lineWidth = 2;
+  c.strokeRect(430, 42, 440, 236);
+  c.fillStyle = '#d4a018';
+  c.font = '800 34px system-ui, sans-serif';
+  c.fillText('FEASIBILITY', 40, 74);
+  c.fillStyle = '#8a8f98';
+  c.font = '600 15px system-ui, sans-serif';
+  c.fillText(`${S.world.companyName} — ${S.world.seed}`, 40, 102);
+  c.fillStyle = '#f0c040';
+  c.font = '900 42px system-ui, sans-serif';
+  c.fillText(rank, 40, 168);
+  c.fillStyle = '#e7e4da';
+  c.font = '700 21px system-ui, sans-serif';
+  c.fillText(`Found ${fmtOz(S.foundOz)} · Poured ${fmtOz(minedOz)}`, 40, 216);
+  c.fillText(`Company value ${fmtMoney(finalValue)} · My stake ${S.stake}%`, 40, 250);
+  c.fillStyle = '#8a8f98';
+  c.font = '600 14px system-ui, sans-serif';
+  c.fillText('Same ground, your taps:', 40, 330);
+  c.fillStyle = '#f0c040';
+  c.font = '700 15px ui-monospace, monospace';
+  c.fillText(`${location.origin}${location.pathname}?seed=${S.world.seed}`, 40, 354);
+  c.fillStyle = '#8a8f98';
+  c.font = '600 14px system-ui, sans-serif';
+  c.fillText(`${FIRM.tagline} Built by a mining engineer.`, 40, 434);
+  const a = document.createElement('a');
+  a.download = `feasibility-${S.world.seed}.png`;
+  a.href = card.toDataURL('image/png');
+  a.click();
+  banner('Share card saved — go start an argument on LinkedIn.');
 }
 
 function shopItem(key: string, name: string, cost: number, desc: string): string {
@@ -775,8 +920,11 @@ function hud(): void {
   const announced = m.announced.measured + m.announced.indicated + m.announced.inferred;
   fundBtn.classList.toggle('attn', announced >= RESOURCE_OZ && !S.funded);
 
-  // Milestone track.
+  // Milestone track (+ a little fanfare when one flips).
   const ms = milestones();
+  const doneCount = ms.filter((x) => x.done).length;
+  if (prevMsDone >= 0 && doneCount > prevMsDone) sDing();
+  prevMsDone = doneCount;
   const active = ms.findIndex((x) => !x.done);
   $('milestones').innerHTML = ms
     .map((x, i) => `<span class="ms ${x.done ? 'done' : ''} ${i === active ? 'active' : ''}">${x.label}</span>`)
@@ -919,6 +1067,16 @@ $('btn-loud').addEventListener('click', () => doAnnounce(true));
 $('btn-raise').addEventListener('click', doRaise);
 $('btn-fund').addEventListener('click', tryFund);
 $('btn-fresh').addEventListener('click', () => newRun(randomSeedName(Math.random())));
+$('btn-daily').addEventListener('click', () => {
+  const d = new Date();
+  newRun(`DAILY-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') $('announce-pop').classList.add('hidden');
+});
+window.addEventListener('resize', () => {
+  if (S !== undefined && !S.fingerDone) placeFinger();
+});
 $('seed-chip').addEventListener('click', () => {
   navigator.clipboard.writeText(location.href).then(() => banner('Challenge link copied — same ground, their taps.'));
 });

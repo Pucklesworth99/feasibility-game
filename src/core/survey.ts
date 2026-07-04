@@ -6,8 +6,15 @@
  */
 
 import { Rng } from './rng';
-import { Cls } from './estimate';
 import { idx, inMap, MAP, Terrain, World } from './world';
+
+/** JORC-translated confidence classes per tile. */
+export const enum Cls {
+  None = 0,
+  Inferred = 1,
+  Indicated = 2,
+  Measured = 3,
+}
 
 export const enum Tool {
   Soil = 0,

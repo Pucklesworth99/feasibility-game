@@ -6,8 +6,7 @@
  */
 
 import { idx, inMap, MAP, Terrain, World } from '../core/world';
-import { Knowledge, Tool } from '../core/survey';
-import { Cls } from '../core/estimate';
+import { Cls, Knowledge, Tool } from '../core/survey';
 import { defOf, Placed } from '../core/build';
 
 export const TW = 56; // tile width in internal px — 20×20 grid, chunky tiles

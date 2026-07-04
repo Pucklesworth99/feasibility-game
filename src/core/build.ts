@@ -7,8 +7,7 @@
  */
 
 import { idx, inMap, MAP, Terrain, World } from './world';
-import { Cls } from './estimate';
-import { Knowledge } from './survey';
+import { Cls, Knowledge } from './survey';
 
 export type BuildingKey = 'plant' | 'tsf' | 'camp';
 
