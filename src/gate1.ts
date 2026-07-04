@@ -10,7 +10,7 @@ import { applyProgram, Knowledge, newKnowledge, Tool } from './core/survey';
 import { canvasSize, pick, render, tileScreen } from './ui/isomap';
 import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray';
 import { fmtMoney, fmtOz } from './core/econ';
-import { isMuted, sDing, shake, sRattle, sSlam, sSting, sThud, sTick, toggleMute } from './ui/juice';
+import { isMuted, sDing, shake, sKaching, sRattle, sSlam, sSting, sThud, sTick, toggleMute } from './ui/juice';
 
 const START_CASH = 5_000_000;
 const HOLE_COST = 250_000;
@@ -61,7 +61,7 @@ function recomputeHeat(): void {
       if (sw < 0.045) continue;
       const v = swv / sw;
       const i = idx(x, y);
-      if (v > 700) heatWarm[i] = Math.min(1, v / 12000);
+      if (v > 700) heatWarm[i] = Math.min(1, v / 25000);
       else heatCold[i] = Math.min(0.5, sw * 0.4);
     }
   }
@@ -211,12 +211,14 @@ function resolve(x: number, y: number): void {
   }
 
   // Build the six-segment core: gold lands at its true depth slice.
+  const bonanza = hit && (tile.grade >= 9 || tile.oz > 60_000);
   const segs: Segment[] = [];
   for (let i = 0; i < SEGMENTS; i++) segs.push(((x + y + i) % 3 === 0 ? 'rock2' : 'rock') as Segment);
   if (hit) {
     const gi = Math.min(SEGMENTS - 1, Math.floor(tile.depth / (RIG_REACH / SEGMENTS)));
     segs[gi] = 'gold';
-    if (tile.oz > 3200 && gi < SEGMENTS - 1) segs[gi + 1] = 'gold';
+    if ((bonanza || tile.oz > 12_000) && gi < SEGMENTS - 1) segs[gi + 1] = 'gold';
+    if (bonanza && gi > 0) segs[gi - 1] = 'gold';
   } else if (near) {
     segs[SEGMENTS - 1] = 'fleck';
   }
@@ -230,11 +232,18 @@ function resolve(x: number, y: number): void {
         applyProgram(S.world, S.k, Tool.RC, x, y);
         const est = S.k.est[idx(x, y)];
         S.oz += est;
-        gradeStamp(`${tile.grade.toFixed(1)} g/t!`, tile.grade);
-        flyNuggets(p.x, p.y, $('oz-counter'), Math.min(16, 5 + Math.round(est / 500)));
-        if (tile.grade > 4.5) {
+        if (bonanza) {
+          gradeStamp(`BONANZA! ${tile.grade.toFixed(0)} g/t`, tile.grade);
+          flyNuggets(p.x, p.y, $('oz-counter'), 24);
           shake();
-          sDing();
+          sKaching();
+        } else {
+          gradeStamp(`${tile.grade.toFixed(1)} g/t!`, tile.grade);
+          flyNuggets(p.x, p.y, $('oz-counter'), Math.min(16, 5 + Math.round(est / 2000)));
+          if (tile.grade > 4.5) {
+            shake();
+            sDing();
+          }
         }
       } else {
         // Mark the ground as tested either way (soiled fog of knowledge).

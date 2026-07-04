@@ -93,7 +93,7 @@ export function generateWorld(seed: string): World {
   for (let s = 0; s < shearCount; s++) {
     const baseX = rng.range(6, MAP - 6);
     const baseY = rng.range(6, MAP - 6);
-    const lensCount = rng.int(2, 3);
+    const lensCount = rng.int(2, 4);
     for (let l = 0; l < lensCount; l++) {
       const t = rng.range(-6, 6);
       const first = s === 0 && l === 0;
@@ -102,7 +102,7 @@ export function generateWorld(seed: string): World {
         cy: baseY + dirY * t + rng.gauss() * 0.9,
         halfA: rng.range(1.6, 3.4), // along strike
         halfB: rng.range(0.7, 1.4), // across strike
-        peakOz: rng.range(8000, 30000),
+        peakOz: rng.range(12000, 40000),
         // The first lens is always shallow-ish (old timers found SOMETHING);
         // the rest can be blind and deep — that's what drilling is for.
         depth: first ? rng.range(5, 55) : rng.range(10, 230),
@@ -127,7 +127,14 @@ export function generateWorld(seed: string): World {
         }
       }
       if (tile.oz > 300) {
-        tile.grade = Math.min(9, 0.8 + (tile.oz / 6500) * (0.7 + 0.6 * gradeN.at(x, y)));
+        // Bonanza zones: ~1 in 4 ore tiles carries the spectacular stuff.
+        // This is the slot-machine variance — and the 1Moz camps.
+        if (rng.next() < 0.25) {
+          tile.oz *= rng.range(5, 11);
+          tile.grade = rng.range(9, 26);
+        } else {
+          tile.grade = Math.min(9, 0.8 + (tile.oz / 6500) * (0.7 + 0.6 * gradeN.at(x, y)));
+        }
         totalOz += tile.oz;
       } else {
         tile.oz = 0;
