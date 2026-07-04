@@ -7,7 +7,7 @@
 
 import './style.css';
 import { generateWorld, idx, inMap, MAP, randomSeedName, Terrain, World } from './core/world';
-import { applyProgram, Knowledge, newKnowledge, terrainAccess, Tool } from './core/survey';
+import { applyProgram, Knowledge, newKnowledge, resourceTotals, terrainAccess, Tool } from './core/survey';
 import { Rng } from './core/rng';
 import {
   announce,
@@ -20,14 +20,14 @@ import {
   tickDays,
 } from './core/market';
 import { BUILDINGS, BuildingDef, canPlace, estimatedPit, Placed, sitingPenalties, truePit } from './core/build';
-import { CONSULTANTS, ConsultantTier, generateTruth, tierOf } from './core/feasibility';
+import { CONSULTANTS, ConsultantTier, generateTruth, ProjectTruth, tierOf } from './core/feasibility';
 import { drawEvent, QuarterEvent } from './core/events';
 import { FIRM } from './core/branding';
 import { fmtMoney, fmtOz } from './core/econ';
 import { canvasSize, pick, render, TH, tileScreen, TW } from './ui/isomap';
 import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray';
 import {
-  isMuted, pulseIfChanged, sClick, sDing, shake, sKaching, sRattle, sSlam, sSting, sThud, sTick, toggleMute,
+  isMuted, pulseIfChanged, sClick, sDing, sDrillStart, sDrillStop, shake, sKaching, sPour, sSlam, sSting, sThud, sTick, toggleMute,
 } from './ui/juice';
 
 // ---------- Tuning ----------
@@ -52,13 +52,16 @@ interface Meta {
   rigTurbo: boolean;
   extraTruck: boolean;
   richUncle: boolean;
+  diamondRig: boolean;
 }
+
+const META_DEFAULTS: Meta = { credits: 0, bestValue: 0, rigTurbo: false, extraTruck: false, richUncle: false, diamondRig: false };
 
 function loadMeta(): Meta {
   try {
-    return { credits: 0, bestValue: 0, rigTurbo: false, extraTruck: false, richUncle: false, ...JSON.parse(localStorage.getItem('feas-meta') || '{}') };
+    return { ...META_DEFAULTS, ...JSON.parse(localStorage.getItem('feas-meta') || '{}') };
   } catch {
-    return { credits: 0, bestValue: 0, rigTurbo: false, extraTruck: false, richUncle: false };
+    return { ...META_DEFAULTS };
   }
 }
 
@@ -104,6 +107,7 @@ interface S4 {
   drilling: { x: number; y: number; phase: 'slam' | 'drill'; t0: number } | null;
   hover: { x: number; y: number } | null;
   ops: Ops | null;
+  truth: ProjectTruth; // computed once per run — construction runs on this
   fingerDone: boolean;
   fingerTarget: { x: number; y: number };
   streak: number; // consecutive hits — the pitch rises with you
@@ -139,10 +143,27 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 const canvas = $<HTMLCanvasElement>('map');
 const ctx = canvas.getContext('2d')!;
 {
+  // Crisp vector at native resolution: backing store at devicePixelRatio,
+  // all draw code stays in logical px via the base transform.
   const { w, h } = canvasSize();
-  canvas.width = w;
-  canvas.height = h;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
+
+/** Rig reach in metres — the Diamond Rig upgrade unlocks the deep lenses. */
+function rigReach(): number {
+  return META.diamondRig ? 280 : RIG_REACH;
+}
+
+function rigTool(): Tool {
+  return META.diamondRig ? Tool.Diamond : Tool.RC;
+}
+
+// Run-generation counter: every deferred callback checks it so a finished
+// run can never lecture, pay, or drill into the next one.
+let runGen = 0;
 
 const BARRY_QUIPS = [
   '"She felt good though, ay." — Barry',
@@ -158,9 +179,12 @@ function newRun(seed: string): void {
   const market = newMarket(diff);
   market.cash = BASE_CASH + (META.richUncle ? 1_500_000 : 0);
   mktRng = new Rng(`${seed}:mkt`);
+  runGen++;
+  const world = generateWorld(seed);
   S = {
-    world: generateWorld(seed),
+    world,
     k: newKnowledge(),
+    truth: generateTruth(seed),
     market,
     phase: 'explore',
     placeIdx: 0,
@@ -213,7 +237,7 @@ function placeFinger(): void {
   for (let y = 0; y < MAP; y++) {
     for (let x = 0; x < MAP; x++) {
       const t = S.world.tiles[idx(x, y)];
-      if (t.oz <= 0 || t.depth > RIG_REACH || t.terrain === Terrain.Heritage) continue;
+      if (t.oz <= 0 || t.depth > rigReach() || t.terrain === Terrain.Heritage) continue;
       const clue = t.terrain === Terrain.Workings ? 40000 : t.terrain === Terrain.Outcrop ? 20000 : 0;
       const score = t.oz + clue - t.depth * 50;
       if (score > bestScore) {
@@ -320,31 +344,40 @@ function drillAt(x: number, y: number): void {
   S.drilling = { x, y, phase: 'slam', t0: performance.now() };
   sSlam();
   hud();
+  const gen = runGen;
   const drillMs = META.rigTurbo ? 480 : 800;
   window.setTimeout(() => {
+    if (gen !== runGen) return;
     if (S.drilling) {
       S.drilling.phase = 'drill';
-      sRattle();
+      sDrillStart();
     }
   }, 140);
-  window.setTimeout(() => resolveHole(x, y), drillMs);
+  window.setTimeout(() => {
+    if (gen !== runGen) return;
+    resolveHole(x, y);
+  }, drillMs);
 }
 
 function resolveHole(x: number, y: number): void {
   S.drilling = null;
+  sDrillStop();
   tickDays(S.market, 7, mktRng);
+  const reach = rigReach();
   const tile = S.world.tiles[idx(x, y)];
-  const hit = tile.oz > 0 && tile.depth <= RIG_REACH;
+  const hit = tile.oz > 0 && tile.depth <= reach;
+  // Ore below the rig's reach is NOT a duster — the tray says so honestly.
+  const blind = !hit && tile.oz > 0 && tile.depth > reach;
   const bonanza = hit && (tile.grade >= 9 || tile.oz > 60_000);
 
   let near = false;
-  if (!hit) {
+  if (!hit && !blind) {
     for (let dy = -1; dy <= 1 && !near; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         if (!inMap(x + dx, y + dy)) continue;
         const n = S.world.tiles[idx(x + dx, y + dy)];
-        if (n.oz > 0 && n.depth <= RIG_REACH) {
+        if (n.oz > 0 && n.depth <= reach) {
           near = true;
           break;
         }
@@ -355,10 +388,12 @@ function resolveHole(x: number, y: number): void {
   const segs: Segment[] = [];
   for (let i = 0; i < SEGMENTS; i++) segs.push(((x + y + i) % 3 === 0 ? 'rock2' : 'rock') as Segment);
   if (hit) {
-    const gi = Math.min(SEGMENTS - 1, Math.floor(tile.depth / (RIG_REACH / SEGMENTS)));
+    const gi = Math.min(SEGMENTS - 1, Math.floor(tile.depth / (reach / SEGMENTS)));
     segs[gi] = 'gold';
     if ((bonanza || tile.oz > 12_000) && gi < SEGMENTS - 1) segs[gi + 1] = 'gold';
     if (bonanza && gi > 0) segs[gi - 1] = 'gold';
+  } else if (blind) {
+    segs[SEGMENTS - 1] = 'deep';
   } else if (near) {
     segs[SEGMENTS - 1] = 'fleck';
   }
@@ -368,7 +403,7 @@ function resolveHole(x: number, y: number): void {
     onTick: sTick,
     onGold: () => sSting(tile.grade),
     onDone: () => {
-      applyProgram(S.world, S.k, Tool.RC, x, y);
+      applyProgram(S.world, S.k, rigTool(), x, y);
       const est = S.k.est[idx(x, y)];
       // The finger only leaves once it's done its job: a hit, or its tile drilled.
       if (!S.fingerDone && (hit || (x === S.fingerTarget.x && y === S.fingerTarget.y))) {
@@ -380,6 +415,13 @@ function resolveHole(x: number, y: number): void {
         S.holesHit++;
         S.streak++;
         S.dusterRun = 0;
+        // Brownfields while she runs: a mid-ops discovery feeds the pit LIVE.
+        if (S.ops && !S.ops.dug[idx(x, y)] && !S.ops.digOrder.includes(idx(x, y))) {
+          S.ops.digOrder.push(idx(x, y));
+          S.ops.pool += tile.oz;
+          S.ops.poolStart += tile.oz;
+          banner(`+${fmtOz(tile.oz)} added to the mine plan. The excavator changes course.`);
+        }
         S.bestGradeInHand = Math.max(S.bestGradeInHand, tile.grade);
         if (!S.flags.taughtAnnounce && S.foundOz > 2000) {
           S.flags.taughtAnnounce = true;
@@ -419,6 +461,10 @@ function resolveHole(x: number, y: number): void {
           hint = { sx: s.sx, sy: s.sy, dx: bn.dx, dy: bn.dy, until: performance.now() + 6500 };
         }
         floatText('traces…', p.x, p.y - 8, 'gold-text');
+      } else if (blind) {
+        // Honest smoke, short rig: tell the player the truth.
+        S.streak = 0;
+        floatText('something deeper… (needs a bigger rig)', p.x, p.y - 8, 'gold-text');
       } else {
         S.streak = 0;
         S.dusterRun++;
@@ -441,18 +487,28 @@ function resolveHole(x: number, y: number): void {
 
 // ---------- Announce / Raise ----------
 
-function unannouncedOz(): number {
+function announcedSum(): number {
   const a = S.market.announced;
-  return Math.max(0, S.foundOz - (a.measured + a.indicated + a.inferred));
+  return a.measured + a.indicated + a.inferred;
+}
+
+function unannouncedOz(): number {
+  return Math.max(0, resourceTotals(S.k).total - announcedSum());
 }
 
 function doAnnounce(loud: boolean): void {
-  const delta = unannouncedOz();
+  // Real JORC classes route to the market: your drill spacing IS the filing.
+  const t = resourceTotals(S.k);
+  const a = S.market.announced;
+  const dm = Math.max(0, t.measured - a.measured);
+  const di = Math.max(0, t.indicated - a.indicated);
+  const df = Math.max(0, t.inferred - a.inferred);
+  const delta = dm + di + df;
   if (delta < 2000) return;
   const before = S.market.price;
   announce(
     S.market,
-    { deltaMeasured: 0, deltaIndicated: 0, deltaInferred: delta, bestGrade: S.bestGradeInHand, promotional: loud, projectName: S.world.seed },
+    { deltaMeasured: dm, deltaIndicated: di, deltaInferred: df, bestGrade: S.bestGradeInHand, promotional: loud, projectName: S.world.seed },
     mktRng,
   );
   S.bestGradeInHand = 0;
@@ -464,8 +520,7 @@ function doAnnounce(loud: boolean): void {
   if (loud) shake();
   banner(loud ? `"BONANZA GOLD AT ${S.world.seed}!" — the market inhales` : `${S.world.seed}: +${fmtOz(delta)} announced. Sober fonts, big number.`);
   if (S.market.sentiment > 0.3) window.setTimeout(() => say('📈 The Broker', 'Mate. MATE. Raise now.'), 1200);
-  const a = S.market.announced;
-  if (!S.flags.taughtBank && !S.funded && a.measured + a.indicated + a.inferred >= RESOURCE_OZ) {
+  if (!S.flags.taughtBank && !S.funded && announcedSum() >= RESOURCE_OZ) {
     S.flags.taughtBank = true;
     window.setTimeout(() => say('🏦 The Banker', "Now THAT's a resource. My door is open — tap FUND IT."), 2400);
   }
@@ -481,7 +536,7 @@ function doRaise(): void {
   raise(S.market, RAISE_AMOUNT, mktRng);
   tickDays(S.market, 3, mktRng);
   $('btn-raise').classList.remove('attn');
-  sKaching();
+  sDing(); // money noise is earned, not borrowed — kaching stays with real wins
   banner(`Placement: +${fmtMoney(RAISE_AMOUNT)}. Your stake: ${S.stake}%. The register groans.`);
   hud();
 }
@@ -504,6 +559,12 @@ function tryFund(): void {
     say('🏦 The Banker', unannouncedOz() > 2000
       ? `I can only lend against what you've TOLD the market. Announce your ounces.`
       : `Come back with ${fmtOz(short)} more announced. The gold, not the vibes.`);
+    sThud();
+    return;
+  }
+  // Banks don't lend against extrapolation — Indicated+Measured must carry it.
+  if ((a.measured + a.indicated) / announced < 0.4) {
+    say('🏦 The Banker', 'Too much Inferred, mate. CLUSTER your holes — two rigs within a stone\'s throw makes it Indicated. Then we talk.');
     sThud();
     return;
   }
@@ -617,6 +678,9 @@ function startOps(): void {
   let sterilizedOz = 0;
   for (let i = 0; i < pit.length; i++) {
     if (!pit[i]) continue;
+    // The mine can only dig what you DISCOVERED. Undrilled ore stays hidden —
+    // find it mid-ops and it joins the plan live. (The critic was right.)
+    if (!S.k.known[i] && S.k.cls[i] === 0) continue;
     const terr = S.world.tiles[i].terrain;
     if (terr === Terrain.Highway || terr === Terrain.Windmill) {
       sterilizedOz += S.world.tiles[i].oz; // the pit stops at the bitumen
@@ -648,10 +712,12 @@ function startOps(): void {
 
   // Siting truths come due the moment earthworks start.
   const penalties = sitingPenalties(S.world, S.buildings);
+  const gen = runGen;
   let delay = 1500;
   for (const pen of penalties) {
     S.market.cash -= pen.cost;
     window.setTimeout(() => {
+      if (gen !== runGen) return;
       say('📋 The Regulator', pen.line);
       shake();
       sThud();
@@ -738,6 +804,7 @@ function showTakeover(): void {
   $('tk-take').onclick = () => {
     news.classList.add('hidden');
     S.market.cash += offer;
+    tickDays(S.market, 6, mktRng); // the price re-anchors — the offer COUNTS
     banner('SOLD. The premium banks. The geologist is still smiling — try not to think about it.');
     sKaching();
     endRun();
@@ -756,28 +823,31 @@ function spawnPour(): void {
   o.pourReady = true;
   const batch = Math.min(o.pool, o.poolStart * 0.07);
   o.pool -= batch;
-  const truth = generateTruth(S.world.seed);
-  const value = batch * OZ_PRICE_MARGIN * truth.met;
+  const value = batch * OZ_PRICE_MARGIN * S.truth.met;
   o.minedOz += batch;
 
   const plant = S.buildings.find((b) => b.key === 'plant')!;
   const p = pagePos(plant.x, plant.y);
   const el = document.createElement('button');
   el.className = 'pour';
-  el.textContent = '🪙';
+  el.innerHTML = '<span class="pour-bar"></span>';
   el.title = 'GOLD POUR — tap to bank it!';
   el.style.left = `${p.x + 10}px`;
   el.style.top = `${p.y - 34}px`;
   document.body.appendChild(el);
   sDing();
 
+  const gen = runGen;
   const bank = (): void => {
-    if (!el.isConnected) return;
+    if (gen !== runGen || !el.isConnected) {
+      el.remove();
+      return;
+    }
     el.remove();
     o.pourReady = false;
     o.bankedCash += value;
     S.market.cash += value;
-    sKaching();
+    sPour(); // the pour gets its own sound — nothing else is allowed to use it
     flyNuggets(p.x, p.y - 30, $('stat-cash'), 8);
     floatText(`+${fmtMoney(value)}`, p.x, p.y - 40, 'gold-text');
     hud();
@@ -793,16 +863,31 @@ function endRun(): void {
   $('newsflash').classList.add('hidden');
   document.querySelectorAll('.pour').forEach((e) => e.remove());
   const o = S.ops!;
-  const truth = generateTruth(S.world.seed);
+  const truth = S.truth;
+
+  // THE LEDGER: what you told the market vs what you poured. Hype debt and
+  // the downgrade branch finally get collected — LOUD has a price now.
+  const aSum = announcedSum();
+  const shortfall = aSum - o.minedOz;
+  if (shortfall > 10_000) {
+    announce(
+      S.market,
+      { deltaMeasured: 0, deltaIndicated: 0, deltaInferred: -shortfall, bestGrade: 0, promotional: false, projectName: S.world.seed },
+      mktRng,
+    );
+    tickDays(S.market, 5, mktRng);
+  }
+
   const est = S.consultant ? Math.min(0.97, truth.met * (1 + 0.15 * (S.consultant.key === 'cheap' ? 1 : S.consultant.key === 'standard' ? 0.3 : 0.05))) : 0.92;
   const finalValue = marketCap(S.market);
+  // THE SCORE is your stake's worth — dilution prices itself, raise-spam dies.
   const yourCut = finalValue * (S.stake / 100);
   const rank =
     o.minedOz < 150_000 ? 'EXPLORATION TARGET' : o.minedOz < 350_000 ? 'INFERRED' : o.minedOz < 700_000 ? 'INDICATED' : 'MEASURED LEGEND';
-  const isRecord = META.bestValue > 0 && finalValue > META.bestValue;
-  const credits = Math.max(1, Math.min(10, Math.floor(finalValue / 20_000_000)));
+  const isRecord = META.bestValue > 0 && yourCut > META.bestValue;
+  const credits = Math.max(1, Math.min(10, Math.floor(yourCut / 15_000_000)));
   META.credits += credits;
-  META.bestValue = Math.max(META.bestValue, finalValue);
+  META.bestValue = Math.max(META.bestValue, yourCut);
   saveMeta();
 
   const consultLine = S.consultant
@@ -812,6 +897,10 @@ function endRun(): void {
         ? `${FIRM.gameName} said ${Math.round(truth.met * 100 + 1)}% recovery. The plant said ${Math.round(truth.met * 100)}%. Boring — in the best possible way.`
         : `The study held up. Nobody writes songs about competence, but the bank hums along.`
     : '';
+  const ledgerLine =
+    shortfall > 10_000
+      ? `You announced ${fmtOz(aSum)}. You poured ${fmtOz(o.minedOz)}. The market did the subtraction — with interest on every adjective.`
+      : '';
 
   const shareUrl = new URL(location.href);
   shareUrl.searchParams.set('seed', S.world.seed);
@@ -820,14 +909,15 @@ function endRun(): void {
     <h2 class="funded">MINED OUT. ${rank}.${isRecord ? ' 🏆 NEW RECORD' : ''}</h2>
     <div class="sub">${escapeHtml(S.world.companyName)} — the ${escapeHtml(S.world.seed)} story, start to finish</div>
     <div class="kpis">
-      <div class="kpi"><div class="k">Gold found</div><div class="v gold">${fmtOz(S.foundOz)}</div></div>
+      <div class="kpi"><div class="k">YOUR SCORE — stake ${S.stake}% of ${fmtMoney(finalValue)}</div><div class="v gold">${fmtMoney(yourCut)}</div></div>
       <div class="kpi"><div class="k">Gold poured</div><div class="v gold">${fmtOz(o.minedOz)}</div></div>
-      <div class="kpi"><div class="k">Company value</div><div class="v good">${fmtMoney(finalValue)}</div></div>
-      <div class="kpi"><div class="k">Your stake (${S.stake}%)</div><div class="v ${S.stake > 50 ? 'good' : 'bad'}">${fmtMoney(yourCut)}</div></div>
+      <div class="kpi"><div class="k">Gold found</div><div class="v">${fmtOz(S.foundOz)}</div></div>
+      <div class="kpi"><div class="k">Holes / hits</div><div class="v">${S.holes} / ${S.holesHit}</div></div>
     </div>
     <div class="debrief">
       <div class="dt">The reconciliation</div>
-      <p>${S.holes} holes drilled, ${S.holesHit} hit. ${escapeHtml(consultLine)}</p>
+      <p>${escapeHtml(consultLine)}</p>
+      ${ledgerLine ? `<p>${escapeHtml(ledgerLine)}</p>` : ''}
       ${o.sterilizedOz > 15_000 ? `<p>${fmtOz(o.sterilizedOz)} sterilised under the highway. Main Roads sends its regards.</p>` : ''}
     </div>
     <div class="biz-card">
@@ -838,6 +928,7 @@ function endRun(): void {
     <div class="shop">
       <div class="dt">THE SHED — ${META.credits} ★</div>
       ${shopItem('rigTurbo', '⚡ Turbo Rig', 3, 'Drills near-instantly. Tap tap tap.')}
+      ${shopItem('diamondRig', '💎 Diamond Rig', 4, 'Reaches 280m — the deep lenses the RC rig lies about.')}
       ${shopItem('extraTruck', '🚚 Third Truck', 3, 'More hauling, faster pours.')}
       ${shopItem('richUncle', '💼 A Richer Uncle', 2, '+$1.5M starting cash, forever.')}
     </div>
@@ -852,7 +943,7 @@ function endRun(): void {
 
   document.querySelectorAll<HTMLButtonElement>('[data-shop]').forEach((b) => {
     b.onclick = () => {
-      const key = b.dataset.shop as 'rigTurbo' | 'extraTruck' | 'richUncle';
+      const key = b.dataset.shop as 'rigTurbo' | 'diamondRig' | 'extraTruck' | 'richUncle';
       const cost = Number(b.dataset.cost);
       if (META[key] || META.credits < cost) return;
       META.credits -= cost;
@@ -868,7 +959,7 @@ function endRun(): void {
   $('btn-again').onclick = () => newRun(randomSeedName(Math.random()));
   $('btn-card').onclick = () => downloadShareCard(rank, finalValue, o.minedOz);
   $('btn-share').onclick = () => {
-    const text = `${S.world.companyName}: found ${fmtOz(S.foundOz)}, poured ${fmtOz(o.minedOz)}, worth ${fmtMoney(finalValue)} — rank ${rank}. Beat me on the same ground: ${shareUrl.toString()}`;
+    const text = `${S.world.companyName}: poured ${fmtOz(o.minedOz)}, my stake worth ${fmtMoney(yourCut)} — rank ${rank}. Beat me on the same ground: ${shareUrl.toString()}`;
     navigator.clipboard.writeText(text).then(() => banner('Result copied — go start an argument.'));
   };
 }
@@ -1190,7 +1281,7 @@ function draw(): void {
       ctx.arc(tx + 3, ty + 3, 2, 0, Math.PI * 2);
       ctx.fill();
       // dust
-      if ((animTick + i * 7) % 3 === 0) {
+      if (((animTick | 0) + i * 7) % 3 === 0) {
         ctx.fillStyle = 'rgba(214,190,160,0.5)';
         ctx.beginPath();
         ctx.arc(tx - 10 * (loaded ? 1 : -1), ty + 2, 2.5, 0, Math.PI * 2);
@@ -1291,7 +1382,7 @@ function drawCritters(): void {
   for (const c of critters) {
     const age = now - c.born;
     if (c.kind === 'roo') {
-      c.x -= 4.6;
+      c.x -= 0.058 * frameDt;
       const hop = Math.abs(Math.sin(age / 260)) * 15;
       const y = c.y - hop;
       const airborne = hop > 4;
@@ -1319,14 +1410,15 @@ function drawCritters(): void {
       }
     } else if (c.kind === 'roadtrain') {
       // Prime mover + three trailers, thundering down the highway (row 3).
-      c.x += 0.17;
+      c.x += 0.0021 * frameDt;
       if (c.x > MAP + 4.5) {
         c.born = 0; // culled next frame
         continue;
       }
       const unit = (t: number, isCab: boolean): void => {
-        const ux = 588 + (t - 3) * 28;
-        const uy = 34 + (t + 3) * 14 - 14;
+        const p = tileScreen(t, 3, 0.58);
+        const ux = p.sx;
+        const uy = p.sy;
         ctx.fillStyle = O;
         ctx.fillRect(ux - 11, uy - 6, 24, 11);
         ctx.fillStyle = isCab ? '#c94f3f' : '#c8ccd2';
@@ -1351,13 +1443,14 @@ function drawCritters(): void {
       for (let u = 3; u >= 1; u--) unit(c.x - u * 1.05, false);
       unit(c.x, true);
       // Dust plume off the back.
+      const dp = tileScreen(c.x - 4.4, 3, 0.58);
       ctx.fillStyle = 'rgba(214,190,160,0.45)';
       ctx.beginPath();
-      ctx.arc(588 + (c.x - 4.4 - 3) * 28, 34 + (c.x - 4.4 + 3) * 14 - 10, 4 + (age % 300) / 90, 0, Math.PI * 2);
+      ctx.arc(dp.sx, dp.sy + 4, 4 + (age % 300) / 90, 0, Math.PI * 2);
       ctx.fill();
     } else if (c.kind === 'emus') {
       // A file of emus: small bodies, periscope necks, ridiculous legs.
-      c.x -= 2.4;
+      c.x -= 0.03 * frameDt;
       for (let i = 0; i < 3; i++) {
         const bx = c.x + i * 17;
         const by = c.y + (i % 2) * 3;
@@ -1386,7 +1479,7 @@ function drawCritters(): void {
         ctx.stroke();
       }
     } else if (c.kind === 'willy') {
-      c.x -= 1.1;
+      c.x -= 0.014 * frameDt;
       const sway = Math.sin(age / 300) * 6;
       for (let i = 0; i < 4; i++) {
         ctx.fillStyle = `rgba(206, 178, 144, ${0.32 - i * 0.05})`;
@@ -1401,7 +1494,7 @@ function drawCritters(): void {
         ctx.fill();
       }
     } else {
-      c.x += 9;
+      c.x += 0.113 * frameDt;
       const flap = Math.floor(age / 110) % 2 === 0;
       for (let i = 0; i < 3; i++) {
         const bx = c.x - i * 14;
@@ -1431,15 +1524,10 @@ canvas.addEventListener('click', (ev) => {
   if (p) onTap(p.x, p.y);
 });
 canvas.addEventListener('mousemove', (ev) => {
-  const p = pick(canvas, ev, S.world);
-  if (p?.x !== S.hover?.x || p?.y !== S.hover?.y) {
-    S.hover = p;
-    draw();
-  }
+  S.hover = pick(canvas, ev, S.world); // rAF paints it — no input-driven draws
 });
 canvas.addEventListener('mouseleave', () => {
   S.hover = null;
-  draw();
 });
 
 $('btn-announce').addEventListener('click', () => {
@@ -1474,9 +1562,11 @@ $('seed-chip').addEventListener('click', () => {
 }
 
 // Main loop: ambience + operations. Interval-driven (rAF stalls when hidden).
+// SIMULATION: 12.5 Hz interval — cheap, and it keeps ticking in hidden tabs.
+let simTick = 0;
 window.setInterval(() => {
-  animTick += 5;
   if (S === undefined) return;
+  simTick++;
   if (!document.hidden) maybeSpawnCritter();
   const now = performance.now();
   // Aeromag reveal: smoke arrives in diagonal bands behind the scanline.
@@ -1491,11 +1581,23 @@ window.setInterval(() => {
   }
   if (S.phase === 'ops') {
     opsTick(now);
-    if (animTick % 60 === 0) tickDays(S.market, 1, mktRng); // ~1 market day/sec
-    if (animTick % 15 === 0) hud();
+    if (simTick % 12 === 0) tickDays(S.market, 1, mktRng); // ~1 market day/sec
+    if (simTick % 3 === 0) hud();
   }
-  if (!document.hidden) draw();
 }, 80);
+
+// RENDER: requestAnimationFrame at display rate, dt-true — the rig rattles
+// instead of swaying, the windmill spins instead of strobing. (The Mojang
+// reviewer was right: a game you never watch at full rate is a flipbook.)
+let frameDt = 16;
+let lastFrameT = performance.now();
+(function frame(now: number): void {
+  frameDt = Math.min(50, now - lastFrameT);
+  lastFrameT = now;
+  animTick = now / 16;
+  if (S !== undefined && !document.hidden) draw();
+  requestAnimationFrame(frame);
+})(performance.now());
 
 // ---------- Boot: straight into the dirt ----------
 

@@ -4,11 +4,27 @@
  */
 
 let actx: AudioContext | null = null;
+let bus: GainNode | null = null;
 let muted = localStorage.getItem('feasibility-muted') === '1';
 
+/** Master bus → compressor → out. Tap-spam stacks politely instead of clipping. */
 function ac(): AudioContext {
-  actx = actx ?? new AudioContext();
+  if (!actx) {
+    actx = new AudioContext();
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.ratio.value = 6;
+    comp.connect(actx.destination);
+    bus = actx.createGain();
+    bus.gain.value = 0.9;
+    bus.connect(comp);
+  }
   return actx;
+}
+
+function out(): AudioNode {
+  ac();
+  return bus!;
 }
 
 export function toggleMute(): boolean {
@@ -32,7 +48,7 @@ function tone(freq: number, at: number, dur: number, type: OscillatorType = 'sin
     g.gain.setValueAtTime(0, c.currentTime + at);
     g.gain.linearRampToValueAtTime(gain, c.currentTime + at + 0.015);
     g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + at + dur);
-    o.connect(g).connect(c.destination);
+    o.connect(g).connect(out());
     o.start(c.currentTime + at);
     o.stop(c.currentTime + at + dur + 0.05);
   } catch {
@@ -80,11 +96,60 @@ function noiseBurst(dur: number, gain: number, freq: number): void {
     const g = c.createGain();
     g.gain.setValueAtTime(gain, c.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
-    src.connect(f).connect(g).connect(c.destination);
+    src.connect(f).connect(g).connect(out());
     src.start();
   } catch {
     /* no audio — fine */
   }
+}
+
+// Looped drill noise: starts with the rods, stops when the core comes up —
+// no more rigs drilling in silence for the last 250ms of every hole.
+let drill: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+
+export function sDrillStart(): void {
+  if (muted || drill) return;
+  try {
+    const c = ac();
+    const len = Math.floor(c.sampleRate * 0.4);
+    const buf = c.createBuffer(1, len, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (0.7 + 0.3 * Math.sin(i / 90));
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 310;
+    f.Q.value = 1.1;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.05, c.currentTime + 0.06);
+    src.connect(f).connect(g).connect(out());
+    src.start();
+    drill = { src, g };
+  } catch {
+    /* fine */
+  }
+}
+
+export function sDrillStop(): void {
+  if (!drill) return;
+  try {
+    const c = ac();
+    drill.g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.09);
+    drill.src.stop(c.currentTime + 0.12);
+  } catch {
+    /* fine */
+  }
+  drill = null;
+}
+
+/** THE pour — reserved for gold coming out of the plant. Nothing else. */
+export function sPour(): void {
+  tone(92, 0, 0.22, 'square', 0.07);
+  [660, 830, 990, 1320, 1660].forEach((f, i) => tone(f, 0.05 + i * 0.05, 0.14, 'triangle', 0.055));
+  tone(1980, 0.34, 0.4, 'sine', 0.045);
 }
 
 /** Rig slams onto the pad. */

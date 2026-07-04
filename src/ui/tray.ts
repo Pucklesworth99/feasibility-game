@@ -5,7 +5,7 @@
  * Also home to the grade stamp, floating texts and the nugget particles.
  */
 
-export type Segment = 'rock' | 'rock2' | 'gold' | 'fleck';
+export type Segment = 'rock' | 'rock2' | 'gold' | 'fleck' | 'deep';
 
 const FLIP_MS = 95;
 

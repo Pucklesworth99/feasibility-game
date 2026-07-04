@@ -5,7 +5,7 @@
  * glints). All programmatic on Canvas 2D — still zero image assets.
  */
 
-import { idx, inMap, MAP, Terrain, World } from '../core/world';
+import { idx, inMap, MAP, OLD_PIT, Terrain, World } from '../core/world';
 import { Cls, Knowledge, Tool } from '../core/survey';
 import { defOf, Placed } from '../core/build';
 
@@ -55,18 +55,21 @@ export function pick(
   world: World,
 ): { x: number; y: number } | null {
   const rect = canvas.getBoundingClientRect();
-  const mx = ((ev.clientX - rect.left) / rect.width) * canvas.width;
-  const my = ((ev.clientY - rect.top) / rect.height) * canvas.height;
+  const { w: LW, h: LH } = canvasSize(); // logical px — independent of DPR backing store
+  const mx = ((ev.clientX - rect.left) / rect.width) * LW;
+  const my = ((ev.clientY - rect.top) / rect.height) * LH;
 
   const a = (mx - ORIGIN_X) / (TW / 2);
   const b = (my - ORIGIN_Y + 0.5 * LIFT) / (TH / 2); // assume mid elevation
   const bx = Math.round((a + b) / 2 - 0.5);
   const by = Math.round((b - a) / 2 - 0.5);
 
+  // Topmost-in-painter's-order wins: the tile drawn LAST under the cursor is
+  // the one the player sees, so it's the one they mean.
   let best: { x: number; y: number } | null = null;
-  let bestD = Infinity;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
+  let bestOrder = -1;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
       const x = bx + dx;
       const y = by + dy;
       if (x < 0 || x >= MAP || y < 0 || y >= MAP) continue;
@@ -74,12 +77,9 @@ export function pick(
       const { sx, sy } = tileScreen(x, y, t.elev);
       const px = Math.abs(mx - sx) / (TW / 2);
       const py = Math.abs(my - (sy + TH / 2)) / (TH / 2);
-      if (px + py <= 1.15) {
-        const d = px + py;
-        if (d < bestD) {
-          bestD = d;
-          best = { x, y };
-        }
+      if (px + py <= 1.02 && x + y > bestOrder) {
+        bestOrder = x + y;
+        best = { x, y };
       }
     }
   }
@@ -262,7 +262,7 @@ export function render(
         ctx.lineTo(sx - TW / 4, sy + TH / 2);
         ctx.closePath();
         ctx.stroke();
-        if (x === 13 && y === 10) {
+        if (x === Math.floor(OLD_PIT.x) && y === Math.floor(OLD_PIT.y)) {
           // The rusted ute of legend, and its resident crow.
           ctx.fillStyle = OUTLINE;
           ctx.fillRect(sx - 5, sy + 8, 11, 5);
