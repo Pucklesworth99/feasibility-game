@@ -158,13 +158,12 @@ export function sSlam(): void {
   noiseBurst(0.09, 0.05, 180);
 }
 
-/** Run-end resolve chord — the montage gets its own voice. */
-export function sFanfare(): void {
+/** Run-end resolve chord. Major for triumph; minor when the market did the
+ *  subtraction — the montage shouldn't sound proud of a ledger crash. */
+export function sFanfare(minor = false): void {
+  const notes = minor ? [392, 466, 587, 698] : [392, 523, 659, 784];
   tone(196, 0, 0.6, 'sine', 0.05);
-  tone(392, 0, 0.3, 'triangle', 0.055);
-  tone(523, 0.09, 0.3, 'triangle', 0.055);
-  tone(659, 0.18, 0.35, 'triangle', 0.055);
-  tone(784, 0.27, 0.55, 'triangle', 0.065);
+  notes.forEach((f, i) => tone(f, i * 0.09, i === 3 ? 0.55 : 0.32, 'triangle', i === 3 ? 0.065 : 0.055));
 }
 
 /** Core-tray segment flip. */

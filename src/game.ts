@@ -976,7 +976,7 @@ function endRun(): void {
       <button class="btn" id="btn-share">Copy result</button>
     </div>`;
   $('overlay').classList.remove('hidden');
-  sFanfare();
+  sFanfare(!S.acquired && shortfall > 10_000);
   shake();
 
   document.querySelectorAll<HTMLButtonElement>('[data-shop]').forEach((b) => {

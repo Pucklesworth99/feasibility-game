@@ -1,5 +1,18 @@
 # FINAL INTERROGATION — benchmark + red team (2026-07-04, autonomous session)
 
+> **THE MOJANG GAUNTLET (2026-07-04, later that day).** A simulated "Mojang technical lead" critic
+> agent ran three adversarial review rounds against the full codebase. Round 1: 12 findings incl.
+> 3 blockers (12.5fps interval renderer; hype debt never collected; the mine ignored discovery).
+> Round 2: verified all 12 fixed, found 8 more incl. 1 new blocker (pagePos not DPR-corrected).
+> Round 3: verified all 8 fixed, zero gating findings, and signed off explicitly:
+> **"This survives playtest night… every system now closes its loop. You drill what you announce,
+> you mine what you found, you pay for what you exaggerated, and dilution prices itself into your
+> final number. The satire is no longer decoration on top of the mechanics; it IS the mechanics."**
+> Named ceiling (accurate): brilliant single session, not yet a week-two game (meta depth, offline
+> pull, staff characters, tenement variety). Named launch debts: phone pass, dead CSS, FX scroll
+> anchoring, branding placeholder. Poster sentence: *"Every ounce you announce is a debt — drill,
+> hype, build, and find out what the ground really thinks of your spreadsheet."*
+
 ## Competitive benchmark
 
 | Benchmark | Their strength | Us | Verdict |
