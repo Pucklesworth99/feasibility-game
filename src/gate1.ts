@@ -61,7 +61,7 @@ function recomputeHeat(): void {
       if (sw < 0.045) continue;
       const v = swv / sw;
       const i = idx(x, y);
-      if (v > 250) heatWarm[i] = Math.min(1, v / 4500);
+      if (v > 700) heatWarm[i] = Math.min(1, v / 12000);
       else heatCold[i] = Math.min(0.5, sw * 0.4);
     }
   }

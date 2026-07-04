@@ -84,10 +84,11 @@ export class ValueNoise2D {
   at(x: number, y: number): number {
     const fx = x * this.freq;
     const fy = y * this.freq;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const tx = smooth(fx - x0);
-    const ty = smooth(fy - y0);
+    // Clamp to the lattice so out-of-range samples stay finite.
+    const x0 = Math.max(0, Math.min(this.lw - 2, Math.floor(fx)));
+    const y0 = Math.max(0, Math.min(this.lh - 2, Math.floor(fy)));
+    const tx = smooth(Math.max(0, Math.min(1, fx - x0)));
+    const ty = smooth(Math.max(0, Math.min(1, fy - y0)));
     const l = this.lattice;
     const w = this.lw;
     const a = l[y0 * w + x0];

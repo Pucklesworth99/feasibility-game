@@ -22,7 +22,7 @@ export function isMuted(): boolean {
 }
 
 function tone(freq: number, at: number, dur: number, type: OscillatorType = 'sine', gain = 0.07): void {
-  if (muted) return;
+  if (muted || !Number.isFinite(freq)) return;
   try {
     const c = ac();
     const o = c.createOscillator();

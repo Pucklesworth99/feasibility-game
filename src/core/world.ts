@@ -63,6 +63,7 @@ export function generateWorld(seed: string): World {
   const elevN = new ValueNoise2D(rng, MAP, MAP, 1 / 5);
   const creekN = new ValueNoise2D(rng, MAP, MAP, 1 / 4);
   const oreN = new ValueNoise2D(rng, MAP, MAP, 1 / 3.5);
+  const gradeN = new ValueNoise2D(rng, MAP, MAP, 1 / 3);
 
   const tiles: Tile[] = new Array(MAP * MAP);
 
@@ -101,7 +102,7 @@ export function generateWorld(seed: string): World {
         cy: baseY + dirY * t + rng.gauss() * 0.9,
         halfA: rng.range(1.6, 3.4), // along strike
         halfB: rng.range(0.7, 1.4), // across strike
-        peakOz: rng.range(2500, 12000),
+        peakOz: rng.range(8000, 30000),
         // The first lens is always shallow-ish (old timers found SOMETHING);
         // the rest can be blind and deep — that's what drilling is for.
         depth: first ? rng.range(5, 55) : rng.range(10, 230),
@@ -125,8 +126,8 @@ export function generateWorld(seed: string): World {
           tile.depth = Math.min(tile.depth, L.depth + r * 35);
         }
       }
-      if (tile.oz > 100) {
-        tile.grade = Math.min(9, 0.8 + (tile.oz / 2200) * (0.7 + 0.6 * oreN.at(x + 17, y + 9)));
+      if (tile.oz > 300) {
+        tile.grade = Math.min(9, 0.8 + (tile.oz / 6500) * (0.7 + 0.6 * gradeN.at(x, y)));
         totalOz += tile.oz;
       } else {
         tile.oz = 0;
@@ -139,8 +140,8 @@ export function generateWorld(seed: string): World {
     for (let x = 0; x < MAP; x++) {
       const tile = tiles[idx(x, y)];
       if (tile.terrain === Terrain.SaltLake || tile.terrain === Terrain.Creek) continue;
-      if (tile.oz > 800 && tile.depth < 25 && rng.next() < 0.55) tile.terrain = Terrain.Outcrop;
-      else if (tile.oz > 400 && tile.depth < 45 && rng.next() < 0.35) tile.terrain = Terrain.Workings;
+      if (tile.oz > 2400 && tile.depth < 25 && rng.next() < 0.55) tile.terrain = Terrain.Outcrop;
+      else if (tile.oz > 1200 && tile.depth < 45 && rng.next() < 0.35) tile.terrain = Terrain.Workings;
     }
   }
 

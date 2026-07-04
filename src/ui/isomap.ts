@@ -214,23 +214,30 @@ export function render(
       // misses cold. Falls back to the class ladder when no heat is supplied.
       const i = idx(x, y);
       if (heat) {
+        // Bright yellow → white: a colour family the terrain never uses, so
+        // the knowledge layer pops off the red dirt instead of staining it.
         const wv = heat.warm[i];
         const cv = heat.cold[i];
         if (wv > 0.02) {
           diamond(ctx, sx, sy);
-          const g = Math.round(215 - wv * 150);
-          ctx.fillStyle = `rgba(255, ${g}, 28, ${0.22 + wv * 0.52})`;
+          const b = Math.round(60 + wv * 150);
+          ctx.fillStyle = `rgba(255, ${Math.round(228 + wv * 27)}, ${b}, ${0.4 + wv * 0.4})`;
           ctx.fill();
-          if (wv > 0.65) {
-            // White-hot core on the richest ground.
+          ctx.strokeStyle = 'rgba(70, 45, 8, 0.55)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          if (wv > 0.6) {
             diamond(ctx, sx, sy);
-            ctx.fillStyle = `rgba(255, 246, 200, ${(wv - 0.65) * 0.5})`;
+            ctx.fillStyle = `rgba(255, 255, 235, ${(wv - 0.6) * 0.6})`;
             ctx.fill();
           }
         } else if (cv > 0.02) {
           diamond(ctx, sx, sy);
-          ctx.fillStyle = `rgba(96, 126, 156, ${0.1 + cv * 0.5})`;
+          ctx.fillStyle = `rgba(62, 105, 158, ${0.2 + cv * 0.6})`;
           ctx.fill();
+          ctx.strokeStyle = 'rgba(20, 35, 60, 0.4)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       } else if (showFindings) {
         const c = k.cls[i];
