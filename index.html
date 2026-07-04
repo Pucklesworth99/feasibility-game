@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Feasibility — run the junior. Find the gold. Mind the market.</title>
+    <meta
+      name="description"
+      content="Run an ASX-listed gold junior: sample a hidden tenement, climb the JORC ladder, manage your share price — and don't build the plant on pushback three."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <h1>FEASIBILITY</h1>
+          <div class="co-chip" id="co-chip" title="Your listed junior. Market cap is the score.">
+            <span class="ticker" id="co-ticker">···</span>
+            <span id="co-name">—</span>
+          </div>
+        </div>
+        <div class="topstats">
+          <div class="tstat"><span class="k">Quarter</span><span class="v" id="stat-day">—</span></div>
+          <div class="tstat"><span class="k">Gold</span><span class="v" id="stat-gold">—</span></div>
+          <div class="tstat"><span class="k">Cash</span><span class="v" id="stat-cash">—</span></div>
+          <div class="tstat"><span class="k">Sentiment</span><span class="v" id="stat-sent">—</span></div>
+          <div class="tstat"><span class="k">Share price</span><span class="v" id="stat-price">—</span></div>
+          <canvas id="spark" width="120" height="34" title="Share price, last ~5 months"></canvas>
+          <div class="tstat"><span class="k">Mkt cap</span><span class="v gold" id="stat-mcap">—</span></div>
+        </div>
+      </header>
+
+      <div class="deskbar">
+        <button id="btn-findings" class="btn btn-ghost findings-on" title="Show or hide what you've learned about the ground.">Findings</button>
+        <div class="legend">
+          <span title="Surface tests hint there could be gold here. A maybe.
+Not a resource — just smoke."><i class="dot dot-p"></i>Prospective</span>
+          <span title="Drilling suggests gold is probably here, but it's lightly tested.
+Banks won't lend against it."><i class="dot dot-f"></i>Inferred</span>
+          <span title="Drilled well enough to plan a mine on.
+The first level banks take seriously."><i class="dot dot-i"></i>Indicated</span>
+          <span title="Drilled tightly, confirmed with core.
+As certain as the ground gets."><i class="dot dot-m"></i>Measured</span>
+        </div>
+        <div class="res-pill" id="res-pill" title="Your gold resource, by confidence.">
+          <span class="rp-oz" id="res-oz">—</span>
+          <div class="jorc-bar mini">
+            <div class="jorc-seg seg-m" id="seg-m"></div>
+            <div class="jorc-seg seg-i" id="seg-i"></div>
+            <div class="jorc-seg seg-f" id="seg-f"></div>
+          </div>
+          <span class="rp-mi" id="res-mi"></span>
+        </div>
+        <span class="hint" id="tile-hint">Tap a tile — plan a program.</span>
+        <div class="desk-actions">
+          <span class="plan-chip" id="plan-chip" title="Programs planned for this quarter. Tap a flagged tile to cancel it.">0/4 rigs</span>
+          <button id="btn-raise2" class="btn" title="Sell new shares at a discount to top up the bank. Dilution builds character.">+$2M</button>
+          <button id="btn-raise5" class="btn" title="Bigger placement, same groaning register.">+$5M</button>
+          <button id="btn-run" class="btn btn-primary" title="Run the quarter: your field programs happen, three months pass, then you write the Quarterly Report.">Run&nbsp;Quarter&nbsp;▶</button>
+          <button id="btn-feas" class="btn btn-primary btn-feas" disabled>Feasibility</button>
+          <button id="btn-challenge" class="btn btn-ghost" title="Copy a challenge link — same tenement, same market, their decisions.">⤴</button>
+        </div>
+      </div>
+
+      <div class="studies hidden" id="studies"></div>
+
+      <section class="map-panel" id="map-wrap">
+        <canvas id="map"></canvas>
+        <div id="radial" class="radial hidden">
+          <button class="rad-btn" data-tool="0"><span class="rn">SOIL TEST</span><span class="rc"></span></button>
+          <button class="rad-btn" data-tool="1"><span class="rn">SHALLOW DRILL</span><span class="rc"></span></button>
+          <button class="rad-btn" data-tool="2"><span class="rn">DEEP DRILL</span><span class="rc"></span></button>
+          <button class="rad-btn" data-tool="3"><span class="rn">CORE DRILL</span><span class="rc"></span></button>
+        </div>
+      </section>
+
+      <div class="tickerbar"><div class="ticker-inner" id="ticker"></div></div>
+
+      <div class="overlay hidden" id="overlay">
+        <div class="modal"><div id="modal-content"></div></div>
+      </div>
+
+      <div class="overlay" id="start-overlay">
+        <div class="modal start-modal">
+          <h1 class="start-title">FEASIBILITY</h1>
+          <p class="start-sub">You run a freshly listed gold junior with one tenement, some seismic-grade optimism, and a share register that expects miracles. Find the gold. Define it properly. Mind the market.</p>
+          <div class="seed-row">
+            <label for="seed-input">Tenement seed</label>
+            <input id="seed-input" type="text" placeholder="random — or paste a mate's" spellcheck="false" />
+          </div>
+          <div class="diff-cards" id="diff-cards"></div>
+          <p class="start-note">Same seed + same difficulty = the exact same tenement and market. That's the challenge format.</p>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span>A feasibility study you can play. Real JORC logic underneath. No servers were harmed — or used.</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
