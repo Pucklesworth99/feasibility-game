@@ -158,10 +158,13 @@ export function sSlam(): void {
   noiseBurst(0.09, 0.05, 180);
 }
 
-/** The rods turning — rattly, industrial. */
-export function sRattle(): void {
-  noiseBurst(0.55, 0.045, 300);
-  for (let i = 0; i < 6; i++) tone(140 + (i % 2) * 40, i * 0.09, 0.05, 'sawtooth', 0.02);
+/** Run-end resolve chord — the montage gets its own voice. */
+export function sFanfare(): void {
+  tone(196, 0, 0.6, 'sine', 0.05);
+  tone(392, 0, 0.3, 'triangle', 0.055);
+  tone(523, 0.09, 0.3, 'triangle', 0.055);
+  tone(659, 0.18, 0.35, 'triangle', 0.055);
+  tone(784, 0.27, 0.55, 'triangle', 0.065);
 }
 
 /** Core-tray segment flip. */

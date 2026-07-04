@@ -76,7 +76,7 @@ export const TOOLS: ToolSpec[] = [
     cost: 600_000,
     days: 28,
     radius: 1,
-    maxDepth: 999,
+    maxDepth: 280, // matches the Diamond Rig's reach — one source of truth
     noise: 0.07,
     desc: 'Expensive, but it pulls solid rock core the banks trust. Any depth. Needed for Measured. (Real term: diamond drilling.)',
   },

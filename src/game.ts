@@ -27,7 +27,7 @@ import { fmtMoney, fmtOz } from './core/econ';
 import { canvasSize, pick, render, TH, tileScreen, TW } from './ui/isomap';
 import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray';
 import {
-  isMuted, pulseIfChanged, sClick, sDing, sDrillStart, sDrillStop, shake, sKaching, sPour, sSlam, sSting, sThud, sTick, toggleMute,
+  isMuted, pulseIfChanged, sClick, sDing, sDrillStart, sDrillStop, sFanfare, shake, sKaching, sPour, sSlam, sSting, sThud, sTick, toggleMute,
 } from './ui/juice';
 
 // ---------- Tuning ----------
@@ -58,17 +58,25 @@ interface Meta {
 const META_DEFAULTS: Meta = { credits: 0, bestValue: 0, rigTurbo: false, extraTruck: false, richUncle: false, diamondRig: false };
 
 function loadMeta(): Meta {
+  // v2: score semantics changed (company value → your stake's worth), so
+  // legacy bestValue records are ~10× inflated — migrate upgrades, reset PBs.
   try {
-    return { ...META_DEFAULTS, ...JSON.parse(localStorage.getItem('feas-meta') || '{}') };
+    const v2 = localStorage.getItem('feas-meta-v2');
+    if (v2) return { ...META_DEFAULTS, ...JSON.parse(v2) };
+    const legacy = JSON.parse(localStorage.getItem('feas-meta') || 'null');
+    if (legacy) return { ...META_DEFAULTS, ...legacy, bestValue: 0 };
+    return { ...META_DEFAULTS };
   } catch {
     return { ...META_DEFAULTS };
   }
 }
 
+const META_KEY = 'feas-meta-v2';
+
 const META = loadMeta();
 function saveMeta(): void {
   try {
-    localStorage.setItem('feas-meta', JSON.stringify(META));
+    localStorage.setItem(META_KEY, JSON.stringify(META));
   } catch { /* fine */ }
 }
 
@@ -108,6 +116,7 @@ interface S4 {
   hover: { x: number; y: number } | null;
   ops: Ops | null;
   truth: ProjectTruth; // computed once per run — construction runs on this
+  acquired: boolean; // sold via takeover — the acquirer bought the book, ledger settled
   fingerDone: boolean;
   fingerTarget: { x: number; y: number };
   streak: number; // consecutive hits — the pitch rises with you
@@ -199,6 +208,7 @@ function newRun(seed: string): void {
     drilling: null,
     hover: null,
     ops: null,
+    acquired: false,
     fingerDone: false,
     fingerTarget: { x: MAP >> 1, y: MAP >> 1 },
     streak: 0,
@@ -221,6 +231,7 @@ function newRun(seed: string): void {
   $('seed-name').textContent = seed;
   $('overlay').classList.add('hidden');
   $('announce-pop').classList.add('hidden');
+  $('newsflash').classList.add('hidden');
   document.querySelectorAll('.pour').forEach((e) => e.remove());
   placeFinger();
   hud();
@@ -255,12 +266,14 @@ function placeFinger(): void {
 }
 
 function pagePos(x: number, y: number): { x: number; y: number } {
+  // LOGICAL canvas dims — canvas.width is ×dpr and lies to the DOM.
   const rect = canvas.getBoundingClientRect();
+  const { w: LW, h: LH } = canvasSize();
   const t = S.world.tiles[idx(x, y)];
   const { sx, sy } = tileScreen(x, y, t.elev);
   return {
-    x: rect.left + (sx / canvas.width) * rect.width,
-    y: rect.top + ((sy + 10) / canvas.height) * rect.height,
+    x: rect.left + (sx / LW) * rect.width,
+    y: rect.top + ((sy + 10) / LH) * rect.height,
   };
 }
 
@@ -435,7 +448,7 @@ function resolveHole(x: number, y: number): void {
           gradeStamp(`BONANZA! ${tile.grade.toFixed(0)} g/t${streakTag}`, tile.grade);
           flyNuggets(p.x, p.y, $('stat-oz'), 24);
           shake();
-          sKaching();
+          sDing(); // the sting already sang — kaching is for money, not rock
         } else {
           gradeStamp(`${tile.grade.toFixed(1)} g/t!${streakTag}`, tile.grade + S.streak);
           flyNuggets(p.x, p.y, $('stat-oz'), Math.min(16, 5 + Math.round(est / 2000)));
@@ -452,7 +465,7 @@ function resolveHole(x: number, y: number): void {
             if (!dx && !dy) continue;
             if (!inMap(x + dx, y + dy)) continue;
             const n = S.world.tiles[idx(x + dx, y + dy)];
-            if (n.oz > 0 && n.depth <= RIG_REACH && (!bn || n.oz > bn.oz)) bn = { dx, dy, oz: n.oz };
+            if (n.oz > 0 && n.depth <= reach && (!bn || n.oz > bn.oz)) bn = { dx, dy, oz: n.oz };
           }
         }
         if (bn) {
@@ -515,7 +528,7 @@ function doAnnounce(loud: boolean): void {
   tickDays(S.market, 3, mktRng);
   $('announce-pop').classList.add('hidden');
   const after = S.market.price;
-  if (after >= before) sKaching();
+  if (after >= before) sDing();
   else sThud();
   if (loud) shake();
   banner(loud ? `"BONANZA GOLD AT ${S.world.seed}!" — the market inhales` : `${S.world.seed}: +${fmtOz(delta)} announced. Sober fonts, big number.`);
@@ -726,7 +739,7 @@ function startOps(): void {
   }
 
   banner('⛏ FIRST BLAST. The mine is ALIVE — keep drilling while she runs.');
-  sKaching();
+  sDing();
   shake();
   hud();
 }
@@ -774,7 +787,12 @@ function showRain(): void {
     </div>`;
   news.classList.remove('hidden');
   floodUntil = performance.now() + 12000; // the creek runs either way
+  const gen = runGen;
   $('rain-pump').onclick = () => {
+    if (gen !== runGen) {
+      news.classList.add('hidden');
+      return;
+    }
     S.market.cash -= 400_000;
     floodUntil = performance.now() + 3500;
     news.classList.add('hidden');
@@ -783,6 +801,10 @@ function showRain(): void {
     hud();
   };
   $('rain-wait').onclick = () => {
+    if (gen !== runGen) {
+      news.classList.add('hidden');
+      return;
+    }
     o.lastPour += 9000;
     news.classList.add('hidden');
     banner('Pours paused while the creek runs. The ducks are having a lovely time.');
@@ -801,8 +823,11 @@ function showTakeover(): void {
       <button class="btn btn-ghost" id="tk-no">We're worth more</button>
     </div>`;
   news.classList.remove('hidden');
+  const gen = runGen;
   $('tk-take').onclick = () => {
     news.classList.add('hidden');
+    if (gen !== runGen) return;
+    S.acquired = true; // the ledger settles with the sale
     S.market.cash += offer;
     tickDays(S.market, 6, mktRng); // the price re-anchors — the offer COUNTS
     banner('SOLD. The premium banks. The geologist is still smiling — try not to think about it.');
@@ -811,6 +836,7 @@ function showTakeover(): void {
   };
   $('tk-no').onclick = () => {
     news.classList.add('hidden');
+    if (gen !== runGen) return;
     S.market.sentiment += 0.12;
     banner('Board rejects the takeover. The register dreams bigger.');
     sClick();
@@ -867,12 +893,23 @@ function endRun(): void {
 
   // THE LEDGER: what you told the market vs what you poured. Hype debt and
   // the downgrade branch finally get collected — LOUD has a price now.
+  // Clawback is PRO-RATA across all classes (Indicated hides nothing), and
+  // a takeover settles the book: the acquirer's diligence bought the ounces.
   const aSum = announcedSum();
   const shortfall = aSum - o.minedOz;
-  if (shortfall > 10_000) {
+  if (!S.acquired && shortfall > 10_000) {
+    const f = Math.min(1, shortfall / Math.max(1, aSum));
+    const a0 = S.market.announced;
     announce(
       S.market,
-      { deltaMeasured: 0, deltaIndicated: 0, deltaInferred: -shortfall, bestGrade: 0, promotional: false, projectName: S.world.seed },
+      {
+        deltaMeasured: -a0.measured * f,
+        deltaIndicated: -a0.indicated * f,
+        deltaInferred: -a0.inferred * f,
+        bestGrade: 0,
+        promotional: false,
+        projectName: S.world.seed,
+      },
       mktRng,
     );
     tickDays(S.market, 5, mktRng);
@@ -897,8 +934,9 @@ function endRun(): void {
         ? `${FIRM.gameName} said ${Math.round(truth.met * 100 + 1)}% recovery. The plant said ${Math.round(truth.met * 100)}%. Boring — in the best possible way.`
         : `The study held up. Nobody writes songs about competence, but the bank hums along.`
     : '';
-  const ledgerLine =
-    shortfall > 10_000
+  const ledgerLine = S.acquired
+    ? 'The acquirer bought the book — ounces, adjectives and all. Their problem now.'
+    : shortfall > 10_000
       ? `You announced ${fmtOz(aSum)}. You poured ${fmtOz(o.minedOz)}. The market did the subtraction — with interest on every adjective.`
       : '';
 
@@ -938,7 +976,7 @@ function endRun(): void {
       <button class="btn" id="btn-share">Copy result</button>
     </div>`;
   $('overlay').classList.remove('hidden');
-  sKaching();
+  sFanfare();
   shake();
 
   document.querySelectorAll<HTMLButtonElement>('[data-shop]').forEach((b) => {
@@ -949,7 +987,7 @@ function endRun(): void {
       META.credits -= cost;
       META[key] = true;
       saveMeta();
-      sKaching();
+      sClick();
       b.classList.add('owned');
       b.disabled = true;
       b.querySelector('.shop-cost')!.textContent = 'OWNED';
@@ -1031,8 +1069,13 @@ function maybeEvent(): void {
       ${ev.choices.map((c, i) => `<button class="btn" data-ev="${i}">${escapeHtml(c.label)}</button>`).join('')}
     </div>`;
   news.classList.remove('hidden');
+  const gen = runGen;
   news.querySelectorAll<HTMLButtonElement>('[data-ev]').forEach((b) => {
     b.onclick = () => {
+      if (gen !== runGen) {
+        news.classList.add('hidden');
+        return;
+      }
       const c = ev.choices[Number(b.dataset.ev)];
       if (c.cash) S.market.cash += c.cash;
       if (c.sentiment) S.market.sentiment += c.sentiment;
@@ -1111,14 +1154,16 @@ function draw(): void {
     performance.now() < floodUntil,
   );
 
-  // Aeromag scanline sweeping the survey onto the map.
+  // Aeromag scanline sweeping the survey onto the map (logical px — the ctx
+  // transform handles dpr; canvas.height would sweep twice the screen).
   const aeroT = performance.now() - aeroStart;
   if (aeroT < AERO_MS + 200) {
-    const ly = (aeroT / AERO_MS) * canvas.height;
+    const { w: LW, h: LH } = canvasSize();
+    const ly = (aeroT / AERO_MS) * LH;
     ctx.fillStyle = 'rgba(196, 162, 248, 0.75)';
-    ctx.fillRect(0, ly, canvas.width, 2.5);
+    ctx.fillRect(0, ly, LW, 2.5);
     ctx.fillStyle = 'rgba(196, 162, 248, 0.18)';
-    ctx.fillRect(0, ly - 14, canvas.width, 14);
+    ctx.fillRect(0, ly - 14, LW, 14);
   }
 
   // Near-miss chevron: pulses toward the neighbour that whispered.
