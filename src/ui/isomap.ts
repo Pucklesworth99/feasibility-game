@@ -6,9 +6,10 @@
  * 30×30 grid at chunky tile sizes — readable at a glance (D-016).
  */
 
-import { idx, MAP, Terrain, World } from '../core/world';
+import { idx, inMap, MAP, Terrain, World } from '../core/world';
 import { Knowledge, Tool } from '../core/survey';
 import { Cls } from '../core/estimate';
+import { Placed } from '../core/build';
 
 export const TW = 40; // tile width in internal px
 export const TH = 20; // tile height
@@ -110,6 +111,8 @@ export function render(
   hover: { x: number; y: number } | null,
   hoverRadius: number,
   planned: Array<{ x: number; y: number }>,
+  buildings: Placed[],
+  pitMask: Uint8Array | null,
 ): void {
   const { w, h } = canvasSize();
   ctx.fillStyle = '#0d0f13';
@@ -215,6 +218,37 @@ export function render(
     }
   }
 
+  // Pit shell: faint fill, dashed boundary — drawn like a real pit design.
+  if (pitMask) {
+    for (let y = 0; y < MAP; y++) {
+      for (let x = 0; x < MAP; x++) {
+        const i = idx(x, y);
+        if (!pitMask[i]) continue;
+        const t = world.tiles[i];
+        const { sx, sy } = tileScreen(x, y, t.elev);
+        diamond(ctx, sx, sy);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fill();
+        let boundary = false;
+        for (let dy = -1; dy <= 1 && !boundary; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!inMap(x + dx, y + dy) || !pitMask[idx(x + dx, y + dy)]) {
+              boundary = true;
+              break;
+            }
+          }
+        }
+        if (boundary) {
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = 'rgba(245, 245, 240, 0.65)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
+  }
+
   // Drill collars — chunky enough to spot across the room.
   for (const hole of k.holes) {
     const t = world.tiles[idx(hole.x, hole.y)];
@@ -224,6 +258,42 @@ export function render(
     ctx.fillStyle = hole.tool === Tool.Diamond ? '#f4f4f2' : '#ffb84d';
     ctx.fillRect(sx - 1, sy - 10, 3, 13);
     ctx.fillRect(sx - 4, sy - 12, 9, 3);
+  }
+
+  // Infrastructure — programmatic pixel buildings.
+  for (const b of buildings) {
+    const t = world.tiles[idx(b.x, b.y)];
+    const { sx, sy } = tileScreen(b.x, b.y, t.elev);
+    if (b.key === 'plant') {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(sx - 9, sy + TH / 2, 20, 3);
+      ctx.fillStyle = '#9aa0a8';
+      ctx.fillRect(sx - 8, sy - 4, 14, 11);
+      ctx.fillStyle = '#c8ccd2';
+      ctx.fillRect(sx - 8, sy - 6, 14, 3);
+      ctx.fillStyle = '#6b7078';
+      ctx.fillRect(sx + 7, sy - 13, 3, 17);
+      ctx.fillStyle = 'rgba(225,225,225,0.55)';
+      ctx.fillRect(sx + 6, sy - 17, 6, 3);
+    } else if (b.key === 'tsf') {
+      diamond(ctx, sx, sy);
+      ctx.fillStyle = '#7a6350';
+      ctx.fill();
+      ctx.strokeStyle = '#4c3d30';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.fillStyle = '#93826d';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy + TH / 2, 8, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#d8c9a3';
+      ctx.fillRect(sx - 8, sy + 1, 7, 5);
+      ctx.fillRect(sx + 2, sy + 4, 7, 5);
+      ctx.fillStyle = '#8a7a55';
+      ctx.fillRect(sx - 8, sy - 1, 7, 3);
+      ctx.fillRect(sx + 2, sy + 2, 7, 3);
+    }
   }
 
   // Planned programs: dashed outline + a little pennant on the tile.

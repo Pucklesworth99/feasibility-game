@@ -7,7 +7,9 @@
 
 import './style.css';
 import { Rng } from './core/rng';
-import { generateWorld, idx, MAP, randomSeedName, World } from './core/world';
+import { generateWorld, idx, MAP, randomSeedName, Terrain, World } from './core/world';
+import { BUILDINGS, estimatedPit, Placed, sitingPenalties, truePit } from './core/build';
+import { isMuted, pulseIfChanged, sClick, sDing, shake, sKaching, sThud, toggleMute } from './ui/juice';
 import {
   applyProgram,
   Knowledge,
@@ -86,6 +88,8 @@ interface Game {
   studies: Partial<Record<StudyKey, StudyResult>>;
   studiesQueued: QueuedStudy[];
   dfs: { published: boolean; estNPV: number; built?: boolean };
+  buildMode: boolean;
+  buildings: Placed[];
 }
 
 let G: Game;
@@ -158,6 +162,8 @@ interface SaveBlob {
   studies?: Game['studies'];
   studiesQueued?: QueuedStudy[];
   dfs?: Game['dfs'];
+  buildMode?: boolean;
+  buildings?: Placed[];
 }
 
 function saveGame(): void {
@@ -175,6 +181,8 @@ function saveGame(): void {
     studies: G.studies,
     studiesQueued: G.studiesQueued,
     dfs: G.dfs,
+    buildMode: G.buildMode,
+    buildings: G.buildings,
   };
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(blob));
@@ -213,6 +221,8 @@ function tryRestore(): boolean {
       studies: blob.studies ?? {},
       studiesQueued: blob.studiesQueued ?? [],
       dfs: blob.dfs ?? { published: false, estNPV: 0 },
+      buildMode: blob.buildMode ?? false,
+      buildings: blob.buildings ?? [],
     };
     mktRng = new Rng(`${blob.seed}:mkt:${diff.key}:${blob.actions.length}`);
     $('start-overlay').classList.add('hidden');
@@ -252,6 +262,8 @@ function startGame(seed: string, diff: Difficulty, carry?: { market: Market; ten
     studies: {},
     studiesQueued: [],
     dfs: { published: false, estNPV: 0 },
+    buildMode: false,
+    buildings: [],
   };
   closeRadial();
 
@@ -268,7 +280,31 @@ function startGame(seed: string, diff: Difficulty, carry?: { market: Market; ten
 
 // ---------- Radial tile menu: PLAN a program (D-016/D-017) ----------
 
+function radialPos(x: number, y: number): { cx: number; cy: number; wrapW: number; wrapH: number } {
+  const rect = mapCanvas.getBoundingClientRect();
+  const wrap = $('map-wrap').getBoundingClientRect();
+  const t = G.world.tiles[idx(x, y)];
+  const s = tileScreen(x, y, t.elev);
+  return {
+    cx: (s.sx / mapCanvas.width) * rect.width + (rect.left - wrap.left),
+    cy: ((s.sy + 10) / mapCanvas.height) * rect.height + (rect.top - wrap.top),
+    wrapW: wrap.width,
+    wrapH: wrap.height,
+  };
+}
+
+const RADIAL_OFFSETS = [
+  [0, -72],
+  [72, 0],
+  [0, 72],
+  [-72, 0],
+];
+
 function openRadial(x: number, y: number): void {
+  if (G.buildMode) {
+    openBuildRadial(x, y);
+    return;
+  }
   const tile = G.world.tiles[idx(x, y)];
   const access = terrainAccess(tile.terrain);
   if (!access.allowed) {
@@ -281,19 +317,7 @@ function openRadial(x: number, y: number): void {
   }
   pendingTile = { x, y };
   previewTool = null;
-
-  const rect = mapCanvas.getBoundingClientRect();
-  const wrap = $('map-wrap').getBoundingClientRect();
-  const s = tileScreen(x, y, tile.elev);
-  const cx = (s.sx / mapCanvas.width) * rect.width + (rect.left - wrap.left);
-  const cy = ((s.sy + 10) / mapCanvas.height) * rect.height + (rect.top - wrap.top);
-  const R = 72;
-  const offsets = [
-    [0, -R],
-    [R, 0],
-    [0, R],
-    [-R, 0],
-  ];
+  const { cx, cy, wrapW, wrapH } = radialPos(x, y);
 
   radial.querySelectorAll<HTMLButtonElement>('.rad-btn').forEach((b, i) => {
     const spec = TOOLS[i];
@@ -302,15 +326,17 @@ function openRadial(x: number, y: number): void {
       G.actions.some((a) => a.x === x && a.y === y && a.tool === spec.tool) ||
       G.plan.some((a) => a.x === x && a.y === y && a.tool === spec.tool);
     const afford = availableCash() >= cost;
+    b.style.display = '';
     b.disabled = done || !afford;
     b.title = done
       ? 'Already done (or planned) here.'
       : !afford
         ? `Need ${fmtMoney(cost)} free — raise capital.`
         : spec.desc;
+    b.querySelector<HTMLElement>('.rn')!.textContent = spec.short;
     b.querySelector<HTMLElement>('.rc')!.textContent = done ? 'done' : fmtMoney(cost);
-    b.style.left = `${Math.min(Math.max(cx + offsets[i][0], 34), wrap.width - 34)}px`;
-    b.style.top = `${Math.min(Math.max(cy + offsets[i][1], 30), wrap.height - 30)}px`;
+    b.style.left = `${Math.min(Math.max(cx + RADIAL_OFFSETS[i][0], 34), wrapW - 34)}px`;
+    b.style.top = `${Math.min(Math.max(cy + RADIAL_OFFSETS[i][1], 30), wrapH - 30)}px`;
     b.onmouseenter = () => {
       previewTool = spec.tool;
       drawMap();
@@ -320,8 +346,62 @@ function openRadial(x: number, y: number): void {
       const target = pendingTile;
       closeRadial();
       if (target) {
+        sClick();
         G.plan.push({ tool: spec.tool, x: target.x, y: target.y, cost });
         toast(`${spec.name} planned. It happens when you run the quarter.`);
+        updateAll();
+        saveGame();
+      }
+    };
+  });
+
+  radial.classList.remove('hidden');
+  drawMap();
+}
+
+function openBuildRadial(x: number, y: number): void {
+  const tile = G.world.tiles[idx(x, y)];
+  if (tile.terrain === Terrain.Heritage || tile.terrain === Terrain.Creek) {
+    toast(tile.terrain === Terrain.Heritage ? 'Heritage area — nothing gets built here.' : "That's the creek. No.");
+    return;
+  }
+  const estPit = estimatedPit(G.k);
+  pendingTile = { x, y };
+  previewTool = null;
+  const { cx, cy, wrapW, wrapH } = radialPos(x, y);
+
+  radial.querySelectorAll<HTMLButtonElement>('.rad-btn').forEach((b, i) => {
+    if (i >= BUILDINGS.length) {
+      b.style.display = 'none';
+      return;
+    }
+    b.style.display = '';
+    const def = BUILDINGS[i];
+    const placed = G.buildings.some((p) => p.key === def.key);
+    const inPit = !!estPit[idx(x, y)];
+    b.disabled = placed || inPit;
+    b.title = placed
+      ? `${def.name} already sited — tap it on the map to pick it up.`
+      : inPit
+        ? "That's inside the pit you've planned. The diggers would like that ground back."
+        : def.desc;
+    b.querySelector<HTMLElement>('.rn')!.textContent = def.short;
+    b.querySelector<HTMLElement>('.rc')!.textContent = placed ? 'placed' : inPit ? 'pit!' : 'site here';
+    b.style.left = `${Math.min(Math.max(cx + RADIAL_OFFSETS[i][0], 34), wrapW - 34)}px`;
+    b.style.top = `${Math.min(Math.max(cy + RADIAL_OFFSETS[i][1], 30), wrapH - 30)}px`;
+    b.onmouseenter = () => {};
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const target = pendingTile;
+      closeRadial();
+      if (target) {
+        sClick();
+        G.buildings.push({ key: def.key, x: target.x, y: target.y });
+        toast(
+          G.buildings.length >= BUILDINGS.length
+            ? 'All sited. Pour first gold when you\'re ready.'
+            : `${def.name} sited.`,
+        );
         updateAll();
         saveGame();
       }
@@ -365,6 +445,7 @@ function runQuarter(): void {
     G.market.sentiment -= 0.02;
   }
 
+  let bigHit = false;
   for (const p of G.plan) {
     if (G.market.cash < p.cost) {
       lines.push({ text: `${TOOLS[p.tool].name} deferred — the bank account said no.`, kind: 'bad' });
@@ -375,8 +456,10 @@ function runQuarter(): void {
     const result = applyProgram(G.world, G.k, p.tool, p.x, p.y);
     G.actions.push({ tool: p.tool, x: p.x, y: p.y });
     G.bestGradeInHand = Math.max(G.bestGradeInHand, result.bestGrade);
+    if (result.hitOz > 400 && result.bestGrade > 4.5) bigHit = true;
     lines.push(programLine(TOOLS[p.tool].name, result));
   }
+  if (bigHit) shake(); // the whole site felt that intercept
   G.plan = [];
   G.slotPenalty = 0; // consumed; events below may set it again
 
@@ -475,6 +558,8 @@ function showQuarterReport(
       </div>` : ''}
     ${disclosureHtml}`;
   $('overlay').classList.remove('hidden');
+  if (lines.some((l) => l.kind === 'good')) sDing();
+  else if (lines.some((l) => l.kind === 'bad')) sThud();
 
   if (event) {
     $('event-card')
@@ -518,6 +603,8 @@ function showQuarterReport(
     closeReport();
     const after = G.market.price;
     const dir = after >= before ? '▲' : '▼';
+    if (after >= before) sKaching();
+    else sThud();
     toast(`The market reacts: ${(before * 100).toFixed(1)}c ${dir} ${(after * 100).toFixed(1)}c`);
   };
 
@@ -641,6 +728,21 @@ function showConsultantPicker(def: StudyDef): void {
   $('pick-cancel').onclick = () => $('overlay').classList.add('hidden');
 }
 
+function enterBuildMode(): void {
+  G.buildMode = true;
+  pushNews(G.market, `${G.world.companyName} approves construction at ${G.world.seed}. Now — where does everything go?`, 'company');
+  $('modal-content').innerHTML = `
+    <h2 class="funded">Site your mine.</h2>
+    <div class="sub">The white dashed line is the pit YOU expect — drawn from YOUR drilling.</div>
+    <p class="ql">Tap the map to place the Process Plant, the Tailings Dam and the Camp. The pit outline comes from what you know — but the orebody has its own opinion, and pushbacks eat ground. Build too close and you'll be moving concrete later, at your expense.</p>
+    <p class="ql">And keep the tailings away from the creek. Please.</p>
+    <div class="modal-actions"><button class="btn btn-primary" id="build-go">Get siting</button></div>`;
+  $('overlay').classList.remove('hidden');
+  $('build-go').onclick = () => $('overlay').classList.add('hidden');
+  updateAll();
+  saveGame();
+}
+
 function estimateParams(): ProjectTruth {
   const g = (k: StudyKey, dflt: number): number => {
     const r = G.studies[k];
@@ -698,6 +800,9 @@ function showPublishModal(): void {
     $('overlay').classList.add('hidden');
     updateAll();
     saveGame();
+    if (G.market.price >= before) sKaching();
+    else sThud();
+    shake();
     toast(`The market reacts: ${(before * 100).toFixed(1)}c ${G.market.price >= before ? '▲' : '▼'} ${(G.market.price * 100).toFixed(1)}c`);
   };
 
@@ -710,9 +815,12 @@ function showPublishModal(): void {
 function showBuildModal(): void {
   const t = resourceTotals(G.k);
   const truth = generateTruth(G.world.seed);
-  const actual = projectNPV(t.measured + t.indicated, t.inferred, truth, G.market.goldPrice);
+  const penalties = sitingPenalties(G.world, G.buildings);
+  const penaltyCost = penalties.reduce((s, p) => s + p.cost, 0);
+  const actual = projectNPV(t.measured + t.indicated, t.inferred, truth, G.market.goldPrice) - penaltyCost;
   const est = G.dfs.estNPV;
   const ratio = est > 0 ? actual / est : actual > 0 ? 1.2 : 1;
+  G.buildMode = false;
 
   // The market marks the studies against reality.
   const before = G.market.price;
@@ -748,8 +856,18 @@ function showBuildModal(): void {
   if (G.studies.met && tierOf(G.studies.met.tier).key === 'cheap' && Math.abs(G.studies.met.estimate - truth.met) / truth.met > 0.1) {
     recon.push("Barry's met test work was, in hindsight, a guess with a letterhead.");
   }
+  for (const p of penalties) recon.push(p.line);
+  if (penalties.length === 0 && G.buildings.length > 0) {
+    recon.push('Nothing you built stands where the pit wants to grow, and the creek runs clean. Textbook siting.');
+  }
 
   const good = ratio >= 0.9;
+  if (good) {
+    sKaching();
+  } else {
+    sThud();
+  }
+  shake();
   const shareUrl = new URL(location.href);
   shareUrl.searchParams.set('seed', G.world.seed);
   shareUrl.searchParams.set('mode', G.market.diff.key);
@@ -856,9 +974,19 @@ function updateAll(): void {
         ? 'The bank wants all five studies before you publish. Click the chips above the map.'
         : 'Publish the Feasibility Study — the biggest announcement a junior ever makes.';
   } else if (!G.dfs.built) {
-    feasBtn.textContent = 'Build the Mine ▶';
-    feasBtn.disabled = false;
-    feasBtn.title = 'Final investment decision. Construction runs on the truth, not the report.';
+    if (!G.buildMode) {
+      feasBtn.textContent = 'Build the Mine ▶';
+      feasBtn.disabled = false;
+      feasBtn.title = 'Final investment decision. First: decide where everything goes.';
+    } else if (G.buildings.length < BUILDINGS.length) {
+      feasBtn.textContent = `Site your mine (${G.buildings.length}/3)`;
+      feasBtn.disabled = true;
+      feasBtn.title = 'Tap the map to place the Plant, Tailings Dam and Camp. Mind the pit outline.';
+    } else {
+      feasBtn.textContent = 'Pour First Gold ▶';
+      feasBtn.disabled = false;
+      feasBtn.title = 'Construction runs on the truth, not the report.';
+    }
   } else {
     feasBtn.textContent = 'Mine built ✓';
     feasBtn.disabled = true;
@@ -872,6 +1000,14 @@ function updateAll(): void {
     .slice(0, 8)
     .map((n) => `<span class="tk ${n.kind}"><b>${escapeHtml(quarterOf(n.day))}</b> ${escapeHtml(n.text)}</span>`)
     .join('<span class="tk-sep">•••</span>');
+
+  if (G.buildMode) {
+    $('tile-hint').textContent = `Site your mine: ${G.buildings.length}/3 placed. Tap the map.`;
+  }
+  pulseIfChanged('stat-price');
+  pulseIfChanged('stat-mcap');
+  pulseIfChanged('stat-cash');
+  pulseIfChanged('res-oz');
 }
 
 function quarterOf(day: number): string {
@@ -882,7 +1018,9 @@ function quarterOf(day: number): string {
 function drawMap(): void {
   const hover = pendingTile ?? G.hover;
   const radius = pendingTile && previewTool !== null ? TOOLS[previewTool].radius : 0;
-  render(mapCtx, G.world, G.k, G.showFindings, hover, radius, G.plan);
+  // In build mode you see the pit you PREDICT; once built, the pit that WAS.
+  const pit = G.buildMode ? estimatedPit(G.k) : G.dfs.built ? truePit(G.world) : null;
+  render(mapCtx, G.world, G.k, G.showFindings, hover, radius, G.plan, G.buildings, pit);
 }
 
 function drawSpark(): void {
@@ -949,6 +1087,17 @@ mapCanvas.addEventListener('click', (ev) => {
     drawMap();
     return;
   }
+  // In build mode, tapping a placed building picks it up again.
+  if (G.buildMode) {
+    const bi = G.buildings.findIndex((b) => b.x === p.x && b.y === p.y);
+    if (bi >= 0) {
+      const picked = G.buildings.splice(bi, 1)[0];
+      toast(`${BUILDINGS.find((d) => d.key === picked.key)!.name} picked up — site it somewhere better.`);
+      updateAll();
+      saveGame();
+      return;
+    }
+  }
   // Tap a flagged (planned) tile → cancel that program.
   const plannedIdx = G.plan.findIndex((a) => a.x === p.x && a.y === p.y);
   if (plannedIdx >= 0) {
@@ -975,7 +1124,9 @@ mapCanvas.addEventListener('mousemove', (ev) => {
     if (p) {
       const t = G.world.tiles[idx(p.x, p.y)];
       const acc = terrainAccess(t.terrain);
-      $('tile-hint').textContent = acc.note ?? 'Tap to plan a program here.';
+      $('tile-hint').textContent = G.buildMode
+        ? 'Tap to site a building here.'
+        : (acc.note ?? 'Tap to plan a program here.');
     }
   }
 });
@@ -1007,13 +1158,24 @@ $('btn-findings').addEventListener('click', () => {
   updateAll();
 });
 
+{
+  const muteBtn = $('btn-mute');
+  muteBtn.textContent = isMuted() ? '🔇' : '🔊';
+  muteBtn.addEventListener('click', () => {
+    muteBtn.textContent = toggleMute() ? '🔇' : '🔊';
+  });
+}
+
 $('btn-raise2').addEventListener('click', () => doRaise(2_000_000));
 $('btn-raise5').addEventListener('click', () => doRaise(5_000_000));
 $('btn-run').addEventListener('click', runQuarter);
 $('btn-feas').addEventListener('click', () => {
   if (G.phase === 'explore') enterFeasibility();
   else if (!G.dfs.published) showPublishModal();
-  else if (!G.dfs.built) showBuildModal();
+  else if (!G.dfs.built) {
+    if (!G.buildMode) enterBuildMode();
+    else if (G.buildings.length >= BUILDINGS.length) showBuildModal();
+  }
 });
 $('btn-challenge').addEventListener('click', () => {
   const u = new URL(location.href);

@@ -6,7 +6,9 @@ A browser-based game for a mining engineering consultant's portfolio site. You r
 
 ## Status
 
-🎮 **Playable MVP slice (exploration + market).** `npm install && npm run dev` → http://localhost:5199. Isometric tenement, 4-tool sampling ladder with AOE reveals, live JORC classification, share price/news/announcements/raises, difficulty tiers, autosave with deterministic replay, seed challenge links. Feasibility phase onward: in design (see D-012…D-015).
+🎮 **Full arc playable.** `npm install && npm run dev` → http://localhost:5199. Explore (quarterly turns, plain-English sampling ladder, findings ladder Prospective→Measured, event cards, disclosure choices) → Feasibility (five studies × three consultant tiers — Barry vs The Good Consultants) → Build (site plant/tailings/camp against the pit outline; the true pit settles the argument) → Reconciliation + the business-card CTA. Persistent listed company across tenements; market cap is the score. ~25 KB gzipped, zero servers.
+
+⚠ Before going public: fill in the real firm name + URL in [src/core/branding.ts](../src/core/branding.ts).
 
 ## Project Map
 
