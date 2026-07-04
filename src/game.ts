@@ -104,6 +104,9 @@ interface S4 {
   hover: { x: number; y: number } | null;
   ops: Ops | null;
   fingerDone: boolean;
+  fingerTarget: { x: number; y: number };
+  streak: number; // consecutive hits — the pitch rises with you
+  dusterRun: number; // consecutive pure misses — the Geo intervenes at 2
   over: boolean;
   flags: { taughtAnnounce: boolean; taughtBank: boolean; takeover: boolean; rain: boolean };
 }
@@ -113,6 +116,14 @@ let mktRng!: Rng;
 let animTick = 0;
 let prevMsDone = -1; // milestone fanfare tracker
 const EMPTY_PIT = new Uint8Array(MAP * MAP); // placement relaxation (softlock guard)
+
+// Aeromag reveal: the purple smoke sweeps onto the map at run start.
+const smokeShown = new Float32Array(MAP * MAP);
+let aeroStart = 0;
+const AERO_MS = 2400;
+
+// Near-miss direction hint: a pulsing chevron pointing at the neighbour ore.
+let hint: { sx: number; sy: number; dx: number; dy: number; until: number } | null = null;
 const heatWarm = new Float32Array(MAP * MAP);
 const heatCold = new Float32Array(MAP * MAP);
 
@@ -157,12 +168,19 @@ function newRun(seed: string): void {
     hover: null,
     ops: null,
     fingerDone: false,
+    fingerTarget: { x: MAP >> 1, y: MAP >> 1 },
+    streak: 0,
+    dusterRun: 0,
     over: false,
     flags: { taughtAnnounce: false, taughtBank: false, takeover: false, rain: false },
   };
   prevMsDone = -1;
   heatWarm.fill(0);
   heatCold.fill(0);
+  smokeShown.fill(0);
+  aeroStart = performance.now();
+  hint = null;
+  window.setTimeout(() => banner('📡 AEROMAG SURVEY IN — drill into the purple smoke.'), 700);
   pushNews(market, `${S.world.companyName} lists at ${(market.price * 100).toFixed(1)}c. Champagne, then silence.`, 'company');
   const u = new URL(location.href);
   u.searchParams.set('seed', seed);
@@ -196,6 +214,7 @@ function placeFinger(): void {
     }
   }
   if (!target) target = { x: MAP >> 1, y: MAP >> 1 };
+  S.fingerTarget = target;
   const p = pagePos(target.x, target.y);
   finger.style.left = `${p.x - 14}px`;
   finger.style.top = `${p.y + 6}px`;
@@ -281,11 +300,6 @@ function drillAt(x: number, y: number): void {
     $('btn-raise').classList.add('attn');
     return;
   }
-  if (!S.fingerDone) {
-    S.fingerDone = true;
-    $('finger').classList.add('hidden');
-  }
-
   S.market.cash -= HOLE_COST;
   S.market.spentExploration += HOLE_COST;
   S.holes++;
@@ -342,9 +356,16 @@ function resolveHole(x: number, y: number): void {
     onDone: () => {
       applyProgram(S.world, S.k, Tool.RC, x, y);
       const est = S.k.est[idx(x, y)];
+      // The finger only leaves once it's done its job: a hit, or its tile drilled.
+      if (!S.fingerDone && (hit || (x === S.fingerTarget.x && y === S.fingerTarget.y))) {
+        S.fingerDone = true;
+        $('finger').classList.add('hidden');
+      }
       if (hit) {
         S.foundOz += est;
         S.holesHit++;
+        S.streak++;
+        S.dusterRun = 0;
         S.bestGradeInHand = Math.max(S.bestGradeInHand, tile.grade);
         if (!S.flags.taughtAnnounce && S.foundOz > 2000) {
           S.flags.taughtAnnounce = true;
@@ -353,25 +374,45 @@ function resolveHole(x: number, y: number): void {
             1700,
           );
         }
+        const streakTag = S.streak >= 2 ? `  ×${S.streak}` : '';
         if (bonanza) {
-          gradeStamp(`BONANZA! ${tile.grade.toFixed(0)} g/t`, tile.grade);
+          gradeStamp(`BONANZA! ${tile.grade.toFixed(0)} g/t${streakTag}`, tile.grade);
           flyNuggets(p.x, p.y, $('stat-oz'), 24);
           shake();
           sKaching();
         } else {
-          gradeStamp(`${tile.grade.toFixed(1)} g/t!`, tile.grade);
+          gradeStamp(`${tile.grade.toFixed(1)} g/t!${streakTag}`, tile.grade + S.streak);
           flyNuggets(p.x, p.y, $('stat-oz'), Math.min(16, 5 + Math.round(est / 2000)));
-          if (tile.grade > 4.5) {
+          if (tile.grade > 4.5 || S.streak >= 3) {
             shake();
             sDing();
           }
         }
       } else if (near) {
+        // Point at the neighbour that caused the traces — actionable, not cryptic.
+        let bn: { dx: number; dy: number; oz: number } | null = null;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            if (!inMap(x + dx, y + dy)) continue;
+            const n = S.world.tiles[idx(x + dx, y + dy)];
+            if (n.oz > 0 && n.depth <= RIG_REACH && (!bn || n.oz > bn.oz)) bn = { dx, dy, oz: n.oz };
+          }
+        }
+        if (bn) {
+          const t2 = S.world.tiles[idx(x, y)];
+          const s = tileScreen(x, y, t2.elev);
+          hint = { sx: s.sx, sy: s.sy, dx: bn.dx, dy: bn.dy, until: performance.now() + 6500 };
+        }
         floatText('traces…', p.x, p.y - 8, 'gold-text');
       } else {
+        S.streak = 0;
+        S.dusterRun++;
         sThud();
         floatText(`−${fmtMoney(HOLE_COST)}`, p.x, p.y - 4, 'bad-text');
-        if (Math.random() < 0.3) {
+        if (S.dusterRun === 2) {
+          window.setTimeout(() => say('🧭 The Geo', 'Boss. The PURPLE smoke. Drill where the smoke is.'), 700);
+        } else if (Math.random() < 0.3) {
           window.setTimeout(() => floatText(BARRY_QUIPS[Math.floor(Math.random() * BARRY_QUIPS.length)], p.x, p.y + 26, 'quip'), 420);
         }
       }
@@ -732,6 +773,7 @@ function endRun(): void {
   const yourCut = finalValue * (S.stake / 100);
   const rank =
     o.minedOz < 150_000 ? 'EXPLORATION TARGET' : o.minedOz < 350_000 ? 'INFERRED' : o.minedOz < 700_000 ? 'INDICATED' : 'MEASURED LEGEND';
+  const isRecord = META.bestValue > 0 && finalValue > META.bestValue;
   const credits = Math.max(1, Math.min(10, Math.floor(finalValue / 20_000_000)));
   META.credits += credits;
   META.bestValue = Math.max(META.bestValue, finalValue);
@@ -749,7 +791,7 @@ function endRun(): void {
   shareUrl.searchParams.set('seed', S.world.seed);
 
   $('modal-content').innerHTML = `
-    <h2 class="funded">MINED OUT. ${rank}.</h2>
+    <h2 class="funded">MINED OUT. ${rank}.${isRecord ? ' 🏆 NEW RECORD' : ''}</h2>
     <div class="sub">${escapeHtml(S.world.companyName)} — the ${escapeHtml(S.world.seed)} story, start to finish</div>
     <div class="kpis">
       <div class="kpi"><div class="k">Gold found</div><div class="v gold">${fmtOz(S.foundOz)}</div></div>
@@ -946,7 +988,40 @@ function draw(): void {
   render(ctx, S.world, S.k, false, S.drilling || S.phase === 'place' ? null : S.hover, 0, [], S.buildings, pit, animTick, {
     warm: heatWarm,
     cold: heatCold,
+    smoke: smokeShown,
   });
+
+  // Aeromag scanline sweeping the survey onto the map.
+  const aeroT = performance.now() - aeroStart;
+  if (aeroT < AERO_MS + 200) {
+    const ly = (aeroT / AERO_MS) * canvas.height;
+    ctx.fillStyle = 'rgba(196, 162, 248, 0.75)';
+    ctx.fillRect(0, ly, canvas.width, 2.5);
+    ctx.fillStyle = 'rgba(196, 162, 248, 0.18)';
+    ctx.fillRect(0, ly - 14, canvas.width, 14);
+  }
+
+  // Near-miss chevron: pulses toward the neighbour that whispered.
+  if (hint && performance.now() < hint.until) {
+    const dirX = ((hint.dx - hint.dy) * TW) / 2;
+    const dirY = ((hint.dx + hint.dy) * TH) / 2;
+    const len = Math.hypot(dirX, dirY) || 1;
+    const ux = dirX / len;
+    const uy = dirY / len;
+    const pulse = 20 + Math.sin(animTick / 5) * 5;
+    const hx = hint.sx + ux * pulse;
+    const hy = hint.sy + 8 + uy * pulse;
+    ctx.fillStyle = 'rgba(240, 192, 64, 0.95)';
+    ctx.beginPath();
+    ctx.moveTo(hx + ux * 10, hy + uy * 10);
+    ctx.lineTo(hx - uy * 6, hy + ux * 6);
+    ctx.lineTo(hx + uy * 6, hy - ux * 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#221812';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 
   // Placement ghost.
   if (S.phase === 'place' && S.hover) {
@@ -1246,6 +1321,16 @@ window.setInterval(() => {
   if (S === undefined) return;
   if (!document.hidden) maybeSpawnCritter();
   const now = performance.now();
+  // Aeromag reveal: smoke arrives in diagonal bands behind the scanline.
+  const aeroT = now - aeroStart;
+  if (aeroT < AERO_MS + 300) {
+    const band = (aeroT / AERO_MS) * (2 * MAP);
+    for (let y = 0; y < MAP; y++) {
+      for (let x = 0; x < MAP; x++) {
+        if (x + y <= band) smokeShown[idx(x, y)] = S.world.aeromag[idx(x, y)];
+      }
+    }
+  }
   if (S.phase === 'ops') {
     opsTick(now);
     if (animTick % 60 === 0) tickDays(S.market, 1, mktRng); // ~1 market day/sec

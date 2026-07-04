@@ -25,6 +25,7 @@ export interface PitView {
 export interface HeatView {
   warm: Float32Array; // 0..1 per tile
   cold: Float32Array; // 0..0.5 per tile
+  smoke?: Float32Array; // 0..1 aeromag haze — where to LOOK, not where gold IS
 }
 
 export function canvasSize(): { w: number; h: number } {
@@ -230,13 +231,21 @@ export function render(
             ctx.fillStyle = `rgba(255, 255, 235, ${(wv - 0.6) * 0.6})`;
             ctx.fill();
           }
-        } else if (cv > 0.02) {
-          diamond(ctx, sx, sy);
-          ctx.fillStyle = `rgba(62, 105, 158, ${0.2 + cv * 0.6})`;
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(20, 35, 60, 0.4)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
+        } else {
+          const sm = heat.smoke ? heat.smoke[i] : 0;
+          if (sm > 0.09) {
+            diamond(ctx, sx, sy);
+            ctx.fillStyle = `rgba(167, 108, 246, ${0.12 + sm * 0.34})`;
+            ctx.fill();
+          }
+          if (cv > 0.02) {
+            diamond(ctx, sx, sy);
+            ctx.fillStyle = `rgba(62, 105, 158, ${0.2 + cv * 0.6})`;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(20, 35, 60, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
         }
       } else if (showFindings) {
         const c = k.cls[i];

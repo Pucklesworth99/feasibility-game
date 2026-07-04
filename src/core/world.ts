@@ -34,6 +34,8 @@ export interface World {
   totalOz: number;
   companyName: string;
   ticker: string;
+  /** Aeromag survey response, 0..1 — the purple smoke. Mostly honest, partly liar. */
+  aeromag: Float32Array;
 }
 
 const DISTRICTS = [
@@ -169,9 +171,47 @@ export function generateWorld(seed: string): World {
     }
   }
 
+  // --- Aeromag: broad geophysical haze over the real trends, modulated by
+  // noise, plus 2–3 false anomalies (magnetite, not gold — the classic trap).
+  const aeromag = new Float32Array(MAP * MAP);
+  for (let y = 0; y < MAP; y++) {
+    for (let x = 0; x < MAP; x++) {
+      const oz = tiles[idx(x, y)].oz;
+      if (oz <= 0) continue;
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          if (!inMap(x + dx, y + dy)) continue;
+          const d = Math.hypot(dx, dy);
+          if (d > 2.8) continue;
+          const j = idx(x + dx, y + dy);
+          aeromag[j] = Math.max(aeromag[j], Math.min(1, oz / 26000) * (1 - d / 3.6));
+        }
+      }
+    }
+  }
+  const magN = new ValueNoise2D(rng, MAP, MAP, 1 / 2.5);
+  for (let y = 0; y < MAP; y++) {
+    for (let x = 0; x < MAP; x++) {
+      aeromag[idx(x, y)] *= 0.6 + 0.75 * magN.at(x, y);
+    }
+  }
+  const fakes = rng.int(2, 3);
+  for (let f = 0; f < fakes; f++) {
+    const fx = rng.int(2, MAP - 3);
+    const fy = rng.int(2, MAP - 3);
+    const fr = rng.range(1.4, 2.4);
+    const str = rng.range(0.3, 0.55);
+    for (let y = 0; y < MAP; y++) {
+      for (let x = 0; x < MAP; x++) {
+        const d = Math.hypot(x - fx, y - fy);
+        if (d < fr) aeromag[idx(x, y)] = Math.max(aeromag[idx(x, y)], str * (1 - d / (fr + 0.5)));
+      }
+    }
+  }
+
   const district = seed.split('-')[0] || 'AURUM';
   const companyName = `${district} ${SUFFIXES[new Rng(seed + ':co').int(0, SUFFIXES.length - 1)]}`;
   const ticker = (district.replace(/[^A-Z]/g, '') + 'XAU').slice(0, 3);
 
-  return { seed, tiles, totalOz, companyName, ticker };
+  return { seed, tiles, totalOz, companyName, ticker, aeromag };
 }
