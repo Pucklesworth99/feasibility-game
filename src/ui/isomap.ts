@@ -445,19 +445,31 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
     // Mill shed.
     outlinedRect(ctx, mx - 26, my - 26, 32, 22, '#8d939c');
     outlinedRect(ctx, mx - 26, my - 31, 32, 6, '#c8ccd2'); // roof
-    // Ball mill cylinder.
+    // Ball mill cylinder — with a rotating stripe so it visibly TURNS.
     outlinedRect(ctx, mx - 20, my - 9, 20, 8, '#7c828c');
+    const spin = (tick % 16) / 16;
+    ctx.fillStyle = '#5a6068';
+    ctx.fillRect(mx - 19 + spin * 14, my - 8, 4, 6);
     // Stack with a red band.
     outlinedRect(ctx, mx + 12, my - 40, 8, 38, '#6b7078');
     ctx.fillStyle = '#c94f3f';
     ctx.fillRect(mx + 13, my - 38, 6, 5);
-    // Conveyor to the ROM pad.
+    // Conveyor to the ROM pad — dashes crawl along the belt.
     ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(mx - 26, my - 6);
     ctx.lineTo(mx - 44, my + 6);
     ctx.stroke();
+    ctx.strokeStyle = '#e8c559';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 5]);
+    ctx.lineDashOffset = -(tick % 40) / 2.5;
+    ctx.beginPath();
+    ctx.moveTo(mx - 26, my - 6);
+    ctx.lineTo(mx - 44, my + 6);
+    ctx.stroke();
+    ctx.setLineDash([]);
     // Smoke — the plant is alive.
     for (let i = 0; i < 3; i++) {
       const puffY = (tick * 0.9 + i * 16) % 48;

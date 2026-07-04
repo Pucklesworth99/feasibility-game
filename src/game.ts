@@ -975,27 +975,82 @@ function draw(): void {
     }
   }
 
-  // Drill rig.
+  // The rig — a proper little truck-mounted RC rig, kitsch and proud.
   if (S.drilling) {
     const d = S.drilling;
     const t = S.world.tiles[idx(d.x, d.y)];
     const { sx, sy } = tileScreen(d.x, d.y, t.elev);
     const el = performance.now() - d.t0;
-    const oy = d.phase === 'slam' ? -Math.max(0, 26 - el * 0.22) : 0;
-    const jx = d.phase === 'drill' ? Math.round(Math.sin(el / 14) * 1.6) : 0;
-    ctx.fillStyle = '#221812';
-    ctx.fillRect(sx - 3 + jx, sy - 24 + oy, 8, 28);
+    const jx = d.phase === 'drill' ? Math.round(Math.sin(el / 12) * 1.4) : 0;
+    const O = '#221812';
+
+    // Truck: chassis, cab, wheels, exhaust.
+    ctx.fillStyle = O;
+    ctx.fillRect(sx - 16 + jx, sy - 3, 26, 8);
     ctx.fillStyle = '#e8c559';
-    ctx.fillRect(sx - 2 + jx, sy - 23 + oy, 6, 26);
-    ctx.fillStyle = '#221812';
-    ctx.fillRect(sx - 9 + jx, sy + 3 + oy, 19, 5);
-    if (d.phase === 'drill') {
-      ctx.fillStyle = 'rgba(214, 190, 160, 0.8)';
+    ctx.fillRect(sx - 15 + jx, sy - 2, 24, 6);
+    ctx.fillStyle = '#c8ccd2';
+    ctx.fillRect(sx - 15 + jx, sy - 7, 7, 6); // cab
+    ctx.fillStyle = '#3a3f47';
+    ctx.fillRect(sx - 14 + jx, sy - 6, 3, 3); // windscreen
+    ctx.fillStyle = '#111';
+    for (const wx of [-12, -4, 4]) {
       ctx.beginPath();
-      ctx.arc(sx + 9 + jx, sy - 2 - (el % 300) / 40, 3.5, 0, Math.PI * 2);
+      ctx.arc(sx + wx + jx, sy + 6, 2.6, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Mast: raises during the slam, braced when up.
+    const mastH = d.phase === 'slam' ? Math.min(30, el * 0.25) : 30;
+    ctx.fillStyle = O;
+    ctx.fillRect(sx + 3 + jx, sy - mastH - 2, 7, mastH + 4);
+    ctx.fillStyle = '#f0c040';
+    ctx.fillRect(sx + 4 + jx, sy - mastH - 1, 5, mastH + 2);
+    ctx.strokeStyle = O;
+    ctx.lineWidth = 1;
+    for (let by = 6; by < mastH; by += 7) {
+      ctx.beginPath();
+      ctx.moveTo(sx + 4 + jx, sy - by);
+      ctx.lineTo(sx + 9 + jx, sy - by - 5);
+      ctx.stroke();
+    }
+    if (d.phase === 'drill') {
+      // Rotation head travels down the mast; rods spin below it.
+      const hy = sy - 26 + ((el % 660) / 660) * 20;
+      ctx.fillStyle = O;
+      ctx.fillRect(sx + 1 + jx, hy - 1, 11, 6);
+      ctx.fillStyle = '#c94f3f';
+      ctx.fillRect(sx + 2 + jx, hy, 9, 4);
+      ctx.fillStyle = '#8a8f98';
+      ctx.fillRect(sx + 5 + jx, hy + 4, 3, sy - hy - 2);
+      // Collar dust ring + exhaust chuffs.
+      ctx.fillStyle = 'rgba(214, 190, 160, 0.85)';
+      ctx.beginPath();
+      ctx.arc(sx + 6 + jx + Math.sin(el / 60) * 3, sy + 1, 3 + (el % 240) / 90, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(120, 120, 118, 0.5)';
+      ctx.beginPath();
+      ctx.arc(sx - 17 + jx, sy - 9 - (el % 500) / 45, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // The driller: hi-vis, hard hat, professionally unbothered.
+    const armUp = Math.floor(el / 520) % 2 === 0;
+    ctx.fillStyle = O;
+    ctx.fillRect(sx - 23, sy - 9, 5, 10);
+    ctx.fillStyle = '#ff7a1a';
+    ctx.fillRect(sx - 22, sy - 8, 3, 5); // hi-vis
+    ctx.fillStyle = '#2a2f3a';
+    ctx.fillRect(sx - 22, sy - 3, 3, 4); // pants
+    ctx.fillStyle = '#f2ede2';
+    ctx.fillRect(sx - 22, sy - 11, 3, 3); // head + hat
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(sx - 23, sy - 12, 5, 2);
+    if (armUp) {
+      ctx.fillStyle = '#ff7a1a';
+      ctx.fillRect(sx - 25, sy - 8, 2, 3); // pointing at the hole, obviously
+    }
   }
+
+  drawCritters();
 
   // Haul trucks — the hypnosis. Pit ↔ plant, loaded one way.
   if (S.phase === 'ops' && S.ops && S.buildings.length) {
@@ -1034,6 +1089,103 @@ function draw(): void {
         ctx.beginPath();
         ctx.arc(tx - 10 * (loaded ? 1 : -1), ty + 2, 2.5, 0, Math.PI * 2);
         ctx.fill();
+      }
+    }
+  }
+}
+
+// ---------- Ambient critters: roos, willy-willies, galahs ----------
+
+interface Critter {
+  kind: 'roo' | 'willy' | 'galahs';
+  x: number; // internal canvas px
+  y: number;
+  born: number;
+}
+
+let critters: Critter[] = [];
+
+function maybeSpawnCritter(): void {
+  if (critters.length >= 2 || Math.random() > 0.008) return;
+  const kinds: Critter['kind'][] = ['roo', 'roo', 'willy', 'galahs']; // roos are the star
+  const kind = kinds[Math.floor(Math.random() * kinds.length)];
+  const { w } = canvasSize();
+  critters.push({
+    kind,
+    x: kind === 'galahs' ? -30 : w + 20,
+    y: kind === 'galahs' ? 24 + Math.random() * 60 : 240 + Math.random() * 300,
+    born: performance.now(),
+  });
+}
+
+function drawCritters(): void {
+  const now = performance.now();
+  const { w } = canvasSize();
+  const O = '#221812';
+  critters = critters.filter((c) => c.x > -60 && c.x < w + 60 && now - c.born < 40000);
+  for (const c of critters) {
+    const age = now - c.born;
+    if (c.kind === 'roo') {
+      c.x -= 4.6;
+      const hop = Math.abs(Math.sin(age / 260)) * 15;
+      const y = c.y - hop;
+      const airborne = hop > 4;
+      ctx.fillStyle = O;
+      ctx.fillRect(c.x - 7, y - 9, 12, 8); // body outline
+      ctx.fillStyle = '#a97d54';
+      ctx.fillRect(c.x - 6, y - 8, 10, 6); // body
+      ctx.fillRect(c.x + 3, y - 13, 4, 6); // head up
+      ctx.fillStyle = O;
+      ctx.fillRect(c.x + 4, y - 16, 2, 3); // ears
+      ctx.fillRect(c.x + 7, y - 15, 1, 2);
+      ctx.fillStyle = '#8a6540';
+      ctx.fillRect(c.x - 12, y - 6, 6, 3); // tail
+      ctx.fillStyle = O;
+      if (airborne) {
+        ctx.fillRect(c.x - 4, y - 2, 3, 4); // legs tucked
+        ctx.fillRect(c.x + 1, y - 2, 3, 4);
+      } else {
+        ctx.fillRect(c.x - 5, y - 2, 3, 6);
+        ctx.fillRect(c.x + 2, y - 2, 3, 6);
+        ctx.fillStyle = 'rgba(214,190,160,0.6)'; // landing dust
+        ctx.beginPath();
+        ctx.arc(c.x + 6, c.y + 3, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (c.kind === 'willy') {
+      c.x -= 1.1;
+      const sway = Math.sin(age / 300) * 6;
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = `rgba(206, 178, 144, ${0.32 - i * 0.05})`;
+        ctx.beginPath();
+        ctx.arc(
+          c.x + sway * (i / 3) + Math.sin(age / 90 + i * 2) * (2 + i * 1.5),
+          c.y - i * 9,
+          2.5 + i * 2.2,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+      }
+    } else {
+      c.x += 9;
+      const flap = Math.floor(age / 110) % 2 === 0;
+      for (let i = 0; i < 3; i++) {
+        const bx = c.x - i * 14;
+        const by = c.y + (i % 2) * 7;
+        ctx.strokeStyle = '#e8a0b4'; // galah pink
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (flap) {
+          ctx.moveTo(bx - 4, by - 3);
+          ctx.lineTo(bx, by);
+          ctx.lineTo(bx + 4, by - 3);
+        } else {
+          ctx.moveTo(bx - 4, by + 2);
+          ctx.lineTo(bx, by);
+          ctx.lineTo(bx + 4, by + 2);
+        }
+        ctx.stroke();
       }
     }
   }
@@ -1092,6 +1244,7 @@ $('seed-chip').addEventListener('click', () => {
 window.setInterval(() => {
   animTick += 5;
   if (S === undefined) return;
+  if (!document.hidden) maybeSpawnCritter();
   const now = performance.now();
   if (S.phase === 'ops') {
     opsTick(now);
