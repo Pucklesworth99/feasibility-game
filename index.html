@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Feasibility — tap to drill. Find the gold.</title>
-    <meta name="description" content="Tap to drill. Watch the core come up. Did we hit? A gold exploration game with real geology underneath." />
+    <title>Feasibility — tap to drill. Find the gold. Build the mine.</title>
+    <meta name="description" content="Tap to drill, follow the heat, convince the bank, build the mine and watch her run. A gold-mining game with real geology underneath." />
   </head>
   <body>
     <div id="app">
@@ -16,46 +16,46 @@
           </button>
         </div>
         <div class="topstats">
-          <div class="g1-cash">
-            <span class="k">BUDGET</span>
-            <span class="v" id="cash-val">—</span>
-            <div class="meter g1-meter"><div class="meter-fill" id="cash-fill"></div></div>
-          </div>
-          <div class="g1-oz">
-            <span class="k">GOLD FOUND</span>
-            <span class="v gold" id="oz-counter">0 oz</span>
-          </div>
-          <button id="btn-fresh" class="btn btn-ghost" title="New ground, same budget.">New tenement</button>
+          <div class="tstat"><span class="k">Cash</span><span class="v" id="stat-cash">—</span></div>
+          <div class="tstat"><span class="k">Gold found</span><span class="v gold" id="stat-oz">0 oz</span></div>
+          <div class="tstat"><span class="k">Share price</span><span class="v" id="stat-price">—</span></div>
+          <div class="tstat"><span class="k">Company value</span><span class="v gold" id="stat-value">—</span></div>
+          <div class="tstat"><span class="k">Your stake</span><span class="v" id="stat-stake">100%</span></div>
+          <button id="btn-fresh" class="btn btn-ghost" title="Walk away. New ground.">New tenement</button>
           <button id="btn-mute" class="btn btn-ghost btn-mute" title="Sound on/off">🔊</button>
         </div>
       </header>
 
+      <div class="milestones" id="milestones"></div>
+
       <section class="map-panel" id="map-wrap">
         <canvas id="map"></canvas>
+        <div class="dock">
+          <div class="dock-wrap">
+            <button id="btn-announce" class="dock-btn" disabled title="Tell the market what you've found. Or don't. Your call.">
+              📢<span class="dock-label">ANNOUNCE</span><span class="announce-badge" id="announce-badge"></span>
+            </button>
+            <div id="announce-pop" class="announce-pop hidden">
+              <button id="btn-straight" class="btn" title="Sober wording. The market trusts you a little more each time.">Straight</button>
+              <button id="btn-loud" class="btn btn-promo" title="ALL CAPS. 'Bonanza'. Pumps the price now — hype is a debt the market collects.">LOUD 📣</button>
+            </div>
+          </div>
+          <button id="btn-raise" class="dock-btn" title="Sell new shares for cash. Your slice of the pie shrinks.">💰<span class="dock-label">RAISE</span></button>
+          <button id="btn-fund" class="dock-btn hidden" title="Pitch the Banker. He only counts ounces you've ANNOUNCED.">🏦<span class="dock-label">FUND IT</span></button>
+        </div>
       </section>
 
       <div id="finger" class="finger hidden">👆<span class="finger-label">TAP TO DRILL</span></div>
+      <div id="newsflash" class="newsflash hidden"></div>
 
-      <div class="overlay hidden" id="broke">
-        <div class="modal broke-modal">
-          <h2>BUDGET GONE.</h2>
-          <p class="sub" id="broke-oz"></p>
-          <div class="modal-actions">
-            <button class="btn btn-primary" id="btn-broke-fresh">Fresh tenement</button>
-          </div>
-        </div>
+      <div class="overlay hidden" id="overlay">
+        <div class="modal"><div id="modal-content"></div></div>
       </div>
 
       <footer class="footer">
-        <span>Gate 1 — the drill test. Real geology underneath.</span>
+        <span>Real geology, real JORC logic, zero servers. Built by a mining engineer.</span>
       </footer>
     </div>
-    <script type="module">
-      // Broke-modal reset shares the main fresh-tenement button's handler.
-      document.getElementById('btn-broke-fresh').addEventListener('click', () => {
-        document.getElementById('btn-fresh').click();
-      });
-    </script>
-    <script type="module" src="/src/gate1.ts"></script>
+    <script type="module" src="/src/game.ts"></script>
   </body>
 </html>
