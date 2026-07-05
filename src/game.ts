@@ -1461,11 +1461,29 @@ function maybeSpawnCritter(): void {
   });
 }
 
+/** Clip to the tenement's diamond footprint so wildlife only shows on the
+ *  ground — no more roos materialising out in the black void of the margins. */
+function clipToMap(): void {
+  const n = tileScreen(0, 0, 0); // top vertex of the far tile
+  const e = tileScreen(MAP - 1, 0, 0);
+  const s = tileScreen(MAP - 1, MAP - 1, 0);
+  const wv = tileScreen(0, MAP - 1, 0);
+  ctx.beginPath();
+  ctx.moveTo(n.sx, n.sy - 6);
+  ctx.lineTo(e.sx + TW / 2 + 4, e.sy + TH / 2);
+  ctx.lineTo(s.sx, s.sy + TH + 12); // extend down over the skirts
+  ctx.lineTo(wv.sx - TW / 2 - 4, wv.sy + TH / 2);
+  ctx.closePath();
+  ctx.clip();
+}
+
 function drawCritters(): void {
   const now = performance.now();
   const { w } = canvasSize();
   const O = '#221812';
   critters = critters.filter((c) => c.x > -60 && c.x < w + 60 && now - c.born < 40000);
+  ctx.save();
+  clipToMap();
   for (const c of critters) {
     const age = now - c.born;
     if (c.kind === 'roo') {
@@ -1617,6 +1635,7 @@ function drawCritters(): void {
       }
     }
   }
+  ctx.restore();
 }
 
 // ---------- Events ----------
