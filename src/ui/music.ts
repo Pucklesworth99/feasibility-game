@@ -32,7 +32,6 @@ interface Layer {
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let layers: Record<string, Layer> = {};
-let windSrc: AudioBufferSourceNode | null = null;
 let timer = 0;
 let step = 0;
 let nextNoteTime = 0;
@@ -82,7 +81,6 @@ export function startMusic(): void {
     perc: mkLayer(0.12),
   };
 
-  startWind();
   nextNoteTime = ctx.currentTime + 0.1;
   timer = window.setInterval(scheduler, 25);
 }
@@ -101,34 +99,9 @@ export function musicSwell(): void {
 /** Stop everything (unused today; keeps the scheduler handle honest). */
 export function stopMusic(): void {
   window.clearInterval(timer);
-  windSrc?.stop();
   started = false;
 }
 
-function startWind(): void {
-  if (!ctx) return;
-  // Brown-ish noise through a low bandpass = a dry outback wind bed.
-  const len = ctx.sampleRate * 3;
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  let last = 0;
-  for (let i = 0; i < len; i++) {
-    const w = Math.random() * 2 - 1;
-    last = (last + 0.02 * w) / 1.02;
-    d[i] = last * 4;
-  }
-  windSrc = ctx.createBufferSource();
-  windSrc.buffer = buf;
-  windSrc.loop = true;
-  const f = ctx.createBiquadFilter();
-  f.type = 'lowpass'; // a soft hush, not a bandpass whistle
-  f.frequency.value = 240;
-  f.Q.value = 0.4;
-  const g = ctx.createGain();
-  g.gain.value = 0.05; // barely-there breath under the music
-  windSrc.connect(f).connect(g).connect(master!);
-  windSrc.start();
-}
 
 function scheduler(): void {
   if (!ctx) return;
