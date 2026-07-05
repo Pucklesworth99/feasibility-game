@@ -1147,18 +1147,20 @@ body {
 .core-seg.revealed { transform: rotateX(0deg); }
 
 .seg-rock {
-  background: linear-gradient(105deg, #6d5b47 0 28%, #7c6a52 28% 52%, #5f5140 52% 78%, #71604b 78%);
+  /* Core IS the ground: ROCK ramp, hard stops. */
+  background: linear-gradient(105deg, #745636 0 28%, #A8845C 28% 52%, #4A3626 52% 78%, #745636 78%);
 }
 
 .seg-rock2 {
-  background: linear-gradient(105deg, #62676f 0 30%, #71767e 30% 58%, #565b63 58% 82%, #6a6f77 82%);
+  /* Sandier interbed: SAND/ROCK mix. */
+  background: linear-gradient(105deg, #B99868 0 30%, #CEB68A 30% 58%, #745636 58% 82%, #B99868 82%);
 }
 
 .seg-gold {
   background:
-    radial-gradient(circle at 30% 35%, rgba(255,255,255,0.85) 0 2px, transparent 3px),
-    radial-gradient(circle at 70% 60%, rgba(255,255,255,0.7) 0 1.5px, transparent 2.5px),
-    linear-gradient(105deg, #f7d24a 0 40%, #d4a018 40% 70%, #f0c040 70%);
+    radial-gradient(circle at 30% 35%, rgba(255,244,180,0.95) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 60%, rgba(255,244,180,0.8) 0 1.5px, transparent 2.5px),
+    linear-gradient(105deg, #F0C040 0 40%, #A6790E 40% 70%, #D4A018 70%);
   animation: gold-pop 0.35s ease;
   box-shadow: 0 0 14px rgba(240, 192, 64, 0.7);
 }
@@ -1238,8 +1240,8 @@ body {
   position: fixed;
   width: 9px;
   height: 9px;
-  background: linear-gradient(135deg, #f7d24a, #d4a018);
-  border: 1.5px solid #221812;
+  background: linear-gradient(135deg, #F0C040, #D4A018);
+  border: 2px solid #221812;
   border-radius: 3px;
   z-index: 65;
   pointer-events: none;
@@ -1274,10 +1276,10 @@ body {
   display: block;
   width: 30px;
   height: 16px;
-  background: linear-gradient(180deg, #f7d24a, #d4a018);
+  background: linear-gradient(180deg, #F0C040, #D4A018);
   border: 2px solid #221812;
   border-radius: 3px;
-  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 3px 0 rgba(255, 244, 180, 0.6);
 }
 
 .finger-label {

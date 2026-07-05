@@ -32,20 +32,47 @@ export function canvasSize(): { w: number; h: number } {
   return { w: MAP * TW + TW, h: MAP * TH + TH + LIFT + 18 };
 }
 
-/** Tile → internal-canvas position of the diamond's top vertex. */
+/** Tile → internal-canvas position of the diamond's top vertex.
+ *  INTEGER-SNAPPED (Art Bible rule 3): the whole world lands on whole pixels,
+ *  so the ink outlines stay ink instead of AA fuzz. */
 export function tileScreen(x: number, y: number, elev: number): { sx: number; sy: number } {
   return {
-    sx: ORIGIN_X + ((x - y) * TW) / 2,
-    sy: ORIGIN_Y + ((x + y) * TH) / 2 - elev * LIFT,
+    sx: Math.round(ORIGIN_X + ((x - y) * TW) / 2),
+    sy: Math.round(ORIGIN_Y + ((x + y) * TH) / 2 - elev * LIFT),
   };
 }
 
 /** Grid-corner (not tile) → screen, at a fixed elevation. */
 function cornerScreen(cx: number, cy: number, elev: number): { sx: number; sy: number } {
   return {
-    sx: ORIGIN_X + ((cx - cy) * TW) / 2,
-    sy: ORIGIN_Y + ((cx + cy) * TH) / 2 - elev * LIFT,
+    sx: Math.round(ORIGIN_X + ((cx - cy) * TW) / 2),
+    sy: Math.round(ORIGIN_Y + ((cx + cy) * TH) / 2 - elev * LIFT),
   };
+}
+
+/** ART BIBLE — named ramps, hue-shifted (shadows violet, highlights warm).
+ *  "Darker" means the next ramp step, never rgb × k. */
+export const PAL = {
+  INK: '#221812',
+  DIRT: ['#8C4430', '#C46A36', '#EA9A50'],
+  ROCK: ['#4A3626', '#745636', '#A8845C'],
+  SAND: ['#B99868', '#CEB68A', '#F2EBE0'],
+  GOLD: ['#A6790E', '#D4A018', '#F0C040'],
+  GLINT: '#FFF4B4',
+  STEEL: ['#3A3F47', '#7C828C', '#C8CCD2'],
+  HIDE: ['#6B4E34', '#8A6B48', '#A97D54'],
+  CAT: '#D98E2B', // machinery bodywork — machinery and money never share a swatch
+  ALERT: '#C94F3F',
+  HIVIS: '#FF7A1A',
+  GALAH: '#E8A0B4',
+  WATER: '#3F7D8C',
+  DUST: '#D6BEA0',
+  SMOKE: '#787876',
+} as const;
+
+/** Elevation quantised to 3 ramp bands — no two-hundred shades of dirt. */
+function band(elev: number): number {
+  return elev < 0.28 ? 0 : elev < 0.42 ? 1 : 2;
 }
 
 /** Screen → tile. Inverts the base transform, then refines against elevation. */
@@ -95,36 +122,25 @@ function diamond(ctx: CanvasRenderingContext2D, sx: number, sy: number): void {
   ctx.closePath();
 }
 
-function shade(r: number, g: number, b: number, k: number): string {
-  return `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`;
-}
-
-/** Saturated flat-colour terrain — pops like a cartoon, shades with height. */
+/** Terrain colour = named ramp × quantised elevation band. Two Plain tiles
+ *  at similar height are now the SAME colour — a palette, not a gradient. */
 function terrainFill(t: Terrain, elev: number): string {
-  const k = 0.78 + elev * 0.45;
+  const b = band(elev);
   switch (t) {
-    case Terrain.Plain:
-      return shade(196, 106, 54, k);
     case Terrain.Hill:
-      return shade(186, 132, 82, k + 0.08);
+      return PAL.DIRT[Math.min(2, b + 1)];
     case Terrain.Outcrop:
-      return shade(116, 86, 54, k);
+      return PAL.ROCK[b];
     case Terrain.SaltLake:
-      return shade(242, 235, 224, 0.96 + elev * 0.04);
+      return PAL.SAND[2]; // salt is flat and blinding — one colour
     case Terrain.Creek:
-      return shade(206, 182, 138, k); // dried sandy bed
-    case Terrain.Workings:
-      return shade(178, 100, 52, k);
-    case Terrain.Heritage:
-      return shade(164, 104, 82, k * 0.92);
+      return PAL.SAND[Math.min(1, b)]; // dried sandy bed
     case Terrain.Highway:
-      return shade(74, 74, 80, 1); // asphalt, flat-lit
+      return PAL.STEEL[0]; // asphalt, flat-lit
     case Terrain.OldPit:
-      return shade(122, 92, 62, k * 0.85);
-    case Terrain.Windmill:
-      return shade(196, 106, 54, k);
+      return PAL.ROCK[Math.max(0, b - 1)];
     default:
-      return shade(196, 106, 54, k);
+      return PAL.DIRT[b]; // Plain, Workings, Heritage, Windmill share the dirt
   }
 }
 
@@ -176,23 +192,23 @@ export function render(
       diamond(ctx, sx, sy);
       ctx.fillStyle = terrainFill(t.terrain, t.elev);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.strokeStyle = 'rgba(34, 24, 18, 0.22)'; // the grid line is INK too
       ctx.lineWidth = 1;
       ctx.stroke();
 
       // Terrain detail — deterministic per tile.
       const hash = (x * 7 + y * 13) % 5;
       if (t.terrain === Terrain.Outcrop) {
-        ctx.fillStyle = 'rgba(58, 44, 32, 0.95)';
+        ctx.fillStyle = PAL.ROCK[0];
         ctx.fillRect(sx - 8 + hash, sy + 6, 7, 4);
         ctx.fillRect(sx + 2, sy + 10 + (hash % 2), 6, 3);
         ctx.fillRect(sx - 3, sy + 12, 4, 2);
       } else if (t.terrain === Terrain.Workings) {
         ctx.fillStyle = OUTLINE;
         ctx.fillRect(sx - 5, sy + 7, 8, 7);
-        ctx.fillStyle = 'rgba(122, 92, 62, 1)';
+        ctx.fillStyle = PAL.ROCK[1];
         ctx.fillRect(sx + 5 + (hash % 2), sy + 10, 6, 4);
-        ctx.strokeStyle = 'rgba(64, 48, 34, 1)';
+        ctx.strokeStyle = PAL.ROCK[0];
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx - 6, sy + 7);
@@ -200,7 +216,7 @@ export function render(
         ctx.lineTo(sx + 5, sy + 7);
         ctx.stroke();
       } else if (t.terrain === Terrain.Heritage) {
-        ctx.strokeStyle = 'rgba(248, 240, 224, 0.7)';
+        ctx.strokeStyle = 'rgba(242, 235, 224, 0.7)'; // SAND light
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx - 9, sy + TH / 2 + 3);
@@ -217,14 +233,14 @@ export function render(
           ctx.fillStyle = 'rgba(63, 125, 156, 0.88)';
           ctx.fill();
           ctx.strokeStyle = `rgba(210, 235, 240, ${0.3 + 0.25 * Math.sin(tick / 8 + x)})`;
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(sx - 8, sy + TH / 2 + 2);
           ctx.lineTo(sx + 6, sy + TH / 2 - 2);
           ctx.stroke();
         } else if (hash < 3) {
           // Dry bed: cracked sand + a river gum hanging on.
-          ctx.strokeStyle = 'rgba(150, 128, 92, 0.8)';
+          ctx.strokeStyle = 'rgba(185, 152, 104, 0.8)'; // SAND shadow
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(sx - 7, sy + 8);
@@ -232,14 +248,14 @@ export function render(
           ctx.moveTo(sx - 1, sy + 5);
           ctx.lineTo(sx + 7, sy + 9);
           ctx.stroke();
-          ctx.fillStyle = 'rgba(240, 238, 230, 1)';
+          ctx.fillStyle = PAL.SAND[2];
           ctx.fillRect(sx - 1 + (hash - 1) * 5, sy + 3, 3, 9); // ghost-gum trunk
           ctx.fillStyle = 'rgba(104, 142, 76, 1)';
           ctx.fillRect(sx - 7 + (hash - 1) * 5, sy - 1, 14, 6);
         }
       } else if (t.terrain === Terrain.Highway) {
         // Centreline dashes crawl nowhere — it's a highway, it just IS.
-        ctx.strokeStyle = '#e8c559';
+        ctx.strokeStyle = PAL.SAND[2]; // road paint, not bullion
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 6]);
         ctx.beginPath();
@@ -253,8 +269,8 @@ export function render(
         ctx.strokeStyle = 'rgba(58, 42, 28, 0.9)';
         ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(74, 56, 38, 0.8)';
-        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(74, 54, 38, 0.8)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx, sy + 5);
         ctx.lineTo(sx + TW / 4, sy + TH / 2);
@@ -266,28 +282,35 @@ export function render(
           // The rusted ute of legend, and its resident crow.
           ctx.fillStyle = OUTLINE;
           ctx.fillRect(sx - 5, sy + 8, 11, 5);
-          ctx.fillStyle = '#8a4a30';
+          ctx.fillStyle = PAL.DIRT[0]; // rust IS shadow-dirt — the desert wins
           ctx.fillRect(sx - 4, sy + 9, 9, 3);
-          ctx.fillStyle = '#6e3a24';
+          ctx.fillStyle = PAL.ROCK[0];
           ctx.fillRect(sx + 2, sy + 6, 3, 3); // cab
           const peck = tick % 55 < 9;
-          ctx.fillStyle = '#15130f';
+          ctx.fillStyle = PAL.INK;
           ctx.fillRect(sx - 3, peck ? sy + 6 : sy + 4, 3, 3); // crow
           ctx.fillRect(sx - 1, peck ? sy + 8 : sy + 3, 2, 1); // beak down/up
         }
       } else if (t.terrain === Terrain.SaltLake) {
         if (hash < 2) {
           // Heat shimmer off the salt.
-          ctx.strokeStyle = `rgba(255,255,255,${0.22 + 0.2 * Math.sin(tick / 7 + x * 2)})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(sx - 8, sy + TH / 2 + 3);
-          ctx.quadraticCurveTo(sx, sy + TH / 2 - 2 + Math.sin(tick / 9 + y) * 2, sx + 8, sy + TH / 2 + 3);
-          ctx.stroke();
+          // Straight dashes, stepped rise — shimmer without AA spaghetti.
+          const sh = Math.floor(tick / 9 + y) % 3;
+          ctx.fillStyle = `rgba(255,255,255,${0.22 + 0.2 * Math.sin(tick / 7 + x * 2)})`;
+          ctx.fillRect(sx - 8, sy + TH / 2 + 2 - sh, 6, 1);
+          ctx.fillRect(sx + 2, sy + TH / 2 + 3 - sh, 6, 1);
         }
       } else if (t.terrain === Terrain.Windmill) {
-        // Southern Cross windmill — spinning, obviously.
+        // Southern Cross windmill — steel legs inside ink, spinning in steps.
         ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(sx - 4, sy + 10);
+        ctx.lineTo(sx, sy - 14);
+        ctx.moveTo(sx + 4, sy + 10);
+        ctx.lineTo(sx, sy - 14);
+        ctx.stroke();
+        ctx.strokeStyle = PAL.STEEL[1];
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx - 4, sy + 10);
@@ -295,17 +318,18 @@ export function render(
         ctx.moveTo(sx + 4, sy + 10);
         ctx.lineTo(sx, sy - 14);
         ctx.stroke();
-        const ang = tick / 6;
-        ctx.strokeStyle = '#c8ccd2';
+        // Joints step (Art Bible rule 5): 8 quantised blade positions.
+        const ang = (Math.floor(tick / 4) % 8) * (Math.PI / 4);
+        ctx.strokeStyle = PAL.STEEL[2];
         ctx.lineWidth = 2;
         for (let b = 0; b < 6; b++) {
           const a = ang + (b * Math.PI) / 3;
           ctx.beginPath();
           ctx.moveTo(sx, sy - 14);
-          ctx.lineTo(sx + Math.cos(a) * 7, sy - 14 + Math.sin(a) * 7);
+          ctx.lineTo(Math.round(sx + Math.cos(a) * 7), Math.round(sy - 14 + Math.sin(a) * 7));
           ctx.stroke();
         }
-        ctx.fillStyle = '#c8ccd2';
+        ctx.fillStyle = PAL.STEEL[2];
         ctx.fillRect(sx + 6, sy - 16, 5, 3); // tail vane
       }
 
@@ -313,33 +337,33 @@ export function render(
       // misses cold. Falls back to the class ladder when no heat is supplied.
       const i = idx(x, y);
       if (heat) {
-        // Bright yellow → white: a colour family the terrain never uses, so
-        // the knowledge layer pops off the red dirt instead of staining it.
-        const wv = heat.warm[i];
-        const cv = heat.cold[i];
-        if (wv > 0.02) {
+        // Bright yellow → white: a colour family the terrain never uses.
+        // Intensities QUANTISED (rule 1 applies to alpha too): 4 heat steps,
+        // 3 smoke steps, 2 cold steps — no per-tile colour snowflakes.
+        const wv = Math.round(heat.warm[i] * 4) / 4;
+        const cv = Math.round(heat.cold[i] * 2) / 2;
+        if (wv > 0) {
           diamond(ctx, sx, sy);
-          const b = Math.round(60 + wv * 150);
-          ctx.fillStyle = `rgba(255, ${Math.round(228 + wv * 27)}, ${b}, ${0.4 + wv * 0.4})`;
+          ctx.fillStyle = `rgba(255, ${228 + wv * 27}, ${60 + wv * 150}, ${0.4 + wv * 0.4})`;
           ctx.fill();
           ctx.strokeStyle = 'rgba(70, 45, 8, 0.55)';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 2;
           ctx.stroke();
           if (wv > 0.6) {
             diamond(ctx, sx, sy);
-            ctx.fillStyle = `rgba(255, 255, 235, ${(wv - 0.6) * 0.6})`;
+            ctx.fillStyle = `rgba(255, 255, 235, ${(wv - 0.5) * 0.5})`;
             ctx.fill();
           }
         } else {
-          const sm = heat.smoke ? heat.smoke[i] : 0;
-          if (sm > 0.09) {
+          const sm = heat.smoke ? Math.ceil(heat.smoke[i] * 3) / 3 : 0;
+          if (sm > 0.3) {
             diamond(ctx, sx, sy);
-            ctx.fillStyle = `rgba(167, 108, 246, ${0.12 + sm * 0.34})`;
+            ctx.fillStyle = `rgba(167, 108, 246, ${0.1 + sm * 0.34})`;
             ctx.fill();
           }
-          if (cv > 0.02) {
+          if (cv > 0) {
             diamond(ctx, sx, sy);
-            ctx.fillStyle = `rgba(62, 105, 158, ${0.2 + cv * 0.6})`;
+            ctx.fillStyle = `rgba(62, 105, 158, ${0.2 + cv * 0.5})`;
             ctx.fill();
             ctx.strokeStyle = 'rgba(20, 35, 60, 0.4)';
             ctx.lineWidth = 1;
@@ -419,20 +443,22 @@ export function render(
     const t = world.tiles[idx(hole.x, hole.y)];
     const { sx, sy } = tileScreen(hole.x, hole.y, t.elev);
     const hit = k.est[idx(hole.x, hole.y)] > 250;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(sx - 3, sy + TH / 2 - 1, 8, 3);
+    // Sun is screen-right: shadows fall LEFT (Art Bible rule 4).
+    ctx.fillStyle = 'rgba(34,24,18,0.35)';
+    ctx.fillRect(sx - 6, sy + TH / 2 - 1, 8, 3);
     if (hit) {
       ctx.fillStyle = OUTLINE;
       ctx.fillRect(sx - 2, sy - 13, 6, 18);
-      ctx.fillStyle = hole.tool === Tool.Diamond ? '#f4f4f2' : '#f0c040';
+      ctx.fillRect(sx - 6, sy - 15, 14, 5); // crossbar wears its ink too
+      ctx.fillStyle = hole.tool === Tool.Diamond ? PAL.STEEL[2] : PAL.GOLD[2];
       ctx.fillRect(sx - 1, sy - 12, 4, 16);
       ctx.fillRect(sx - 5, sy - 14, 12, 3);
-      ctx.fillStyle = '#fff4b4';
+      ctx.fillStyle = PAL.GLINT;
       ctx.fillRect(sx, sy - 9, 2, 2); // glint
     } else {
       ctx.fillStyle = OUTLINE;
       ctx.fillRect(sx - 2, sy - 5, 6, 9);
-      ctx.fillStyle = '#8a8f98';
+      ctx.fillStyle = PAL.STEEL[1];
       ctx.fillRect(sx - 1, sy - 4, 4, 7);
     }
   }
@@ -450,15 +476,17 @@ export function render(
         const { sx, sy } = tileScreen(x, y, t.elev);
         const gx = sx + ((x * 7 + y * 3) % 9) - 4;
         const gy = sy + 6 + ((x * 3 + y * 11) % 5) - 2;
-        const r = phase < 6 ? phase / 2 : (12 - phase) / 2;
-        ctx.strokeStyle = 'rgba(255, 244, 180, 0.95)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(gx - r * 2, gy);
-        ctx.lineTo(gx + r * 2, gy);
-        ctx.moveTo(gx, gy - r);
-        ctx.lineTo(gx, gy + r);
-        ctx.stroke();
+        // 3-frame plus: small → big → small, pure fillRect (rule 3).
+        const frame = phase < 4 ? 0 : phase < 8 ? 1 : 0;
+        ctx.fillStyle = PAL.GLINT;
+        if (frame === 0) {
+          ctx.fillRect(gx - 1, gy, 3, 1);
+          ctx.fillRect(gx, gy - 1, 1, 3);
+        } else {
+          ctx.fillRect(gx - 3, gy, 7, 1);
+          ctx.fillRect(gx, gy - 3, 1, 7);
+          ctx.fillRect(gx - 1, gy - 1, 3, 3);
+        }
       }
     }
   }
@@ -478,10 +506,10 @@ export function render(
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.setLineDash([]);
-    // Rig: outlined mast + skid, with pulsing dust.
+    // Rig: outlined mast + skid, with pulsing dust. Machinery wears CAT.
     ctx.fillStyle = OUTLINE;
     ctx.fillRect(sx - 2, sy - 15, 6, 18);
-    ctx.fillStyle = '#e8c559';
+    ctx.fillStyle = PAL.CAT;
     ctx.fillRect(sx - 1, sy - 14, 4, 16);
     ctx.fillStyle = OUTLINE;
     ctx.fillRect(sx - 6, sy + 2, 13, 4);
@@ -538,10 +566,10 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
   ctx.lineTo(c2.sx, c2.sy);
   ctx.lineTo(c3.sx, c3.sy);
   ctx.closePath();
-  ctx.fillStyle = b.key === 'tsf' ? '#96794f' : b.key === 'camp' ? '#cdb98e' : '#b3b8bf';
+  ctx.fillStyle = b.key === 'tsf' ? PAL.ROCK[1] : b.key === 'camp' ? PAL.SAND[1] : PAL.STEEL[2];
   ctx.fill();
   ctx.strokeStyle = OUTLINE;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.stroke();
 
   // Footprint centre in screen space.
@@ -550,17 +578,17 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
   const my = mid.sy;
 
   if (b.key === 'plant') {
-    // Mill shed.
-    outlinedRect(ctx, mx - 26, my - 26, 32, 22, '#8d939c');
-    outlinedRect(ctx, mx - 26, my - 31, 32, 6, '#c8ccd2'); // roof
-    // Ball mill cylinder — with a rotating stripe so it visibly TURNS.
-    outlinedRect(ctx, mx - 20, my - 9, 20, 8, '#7c828c');
-    const spin = (tick % 16) / 16;
-    ctx.fillStyle = '#5a6068';
-    ctx.fillRect(mx - 19 + spin * 14, my - 8, 4, 6);
+    // Mill shed — STEEL ramp, top-lit.
+    outlinedRect(ctx, mx - 26, my - 26, 32, 22, PAL.STEEL[1]);
+    outlinedRect(ctx, mx - 26, my - 31, 32, 6, PAL.STEEL[2]); // roof
+    // Ball mill cylinder — stripe steps through 4 positions (rule 5).
+    outlinedRect(ctx, mx - 20, my - 9, 20, 8, PAL.STEEL[1]);
+    const spin = Math.floor(tick / 4) % 4;
+    ctx.fillStyle = PAL.STEEL[0];
+    ctx.fillRect(mx - 19 + spin * 4, my - 8, 4, 6);
     // Stack with a red band.
-    outlinedRect(ctx, mx + 12, my - 40, 8, 38, '#6b7078');
-    ctx.fillStyle = '#c94f3f';
+    outlinedRect(ctx, mx + 12, my - 40, 8, 38, PAL.STEEL[0]);
+    ctx.fillStyle = PAL.ALERT;
     ctx.fillRect(mx + 13, my - 38, 6, 5);
     // Conveyor to the ROM pad — dashes crawl along the belt.
     ctx.strokeStyle = OUTLINE;
@@ -569,16 +597,16 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
     ctx.moveTo(mx - 26, my - 6);
     ctx.lineTo(mx - 44, my + 6);
     ctx.stroke();
-    ctx.strokeStyle = '#e8c559';
+    ctx.strokeStyle = PAL.CAT;
     ctx.lineWidth = 2;
     ctx.setLineDash([3, 5]);
-    ctx.lineDashOffset = -(tick % 40) / 2.5;
+    ctx.lineDashOffset = -Math.floor(tick / 4) * 2; // stepped crawl
     ctx.beginPath();
     ctx.moveTo(mx - 26, my - 6);
     ctx.lineTo(mx - 44, my + 6);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Smoke — the plant is alive.
+    // Smoke — particle class: round, unoutlined, exempt (rule 2).
     for (let i = 0; i < 3; i++) {
       const puffY = (tick * 0.9 + i * 16) % 48;
       const alpha = Math.max(0, 0.55 - puffY / 90);
@@ -600,42 +628,44 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
     ctx.lineTo(p2.sx, p2.sy);
     ctx.lineTo(p3.sx, p3.sy);
     ctx.closePath();
-    ctx.fillStyle = '#3f7d8c';
+    ctx.fillStyle = PAL.WATER;
     ctx.fill();
     ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
     ctx.stroke();
-    // Pond shimmer.
-    ctx.strokeStyle = `rgba(210, 235, 240, ${0.25 + 0.2 * Math.sin(tick / 10)})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(mx - 12, my - 2);
-    ctx.lineTo(mx + 4, my - 6);
-    ctx.stroke();
+    // Pond shimmer — water particle, stepped drift.
+    ctx.fillStyle = `rgba(210, 235, 240, ${0.25 + 0.2 * Math.sin(tick / 10)})`;
+    ctx.fillRect(mx - 12 + (Math.floor(tick / 8) % 3) * 3, my - 5, 12, 2);
     // Discharge pipe.
     ctx.strokeStyle = OUTLINE;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(mx, my - TH * 0.9);
     ctx.lineTo(mx, my - TH * 1.6);
     ctx.stroke();
   } else {
-    // Camp: rows of dongas + the mess.
-    outlinedRect(ctx, mx - 26, my - 16, 14, 9, '#f2ede2');
-    outlinedRect(ctx, mx - 8, my - 13, 14, 9, '#f2ede2');
-    outlinedRect(ctx, mx + 10, my - 16, 14, 9, '#f2ede2');
-    ctx.fillStyle = '#7c6a48';
+    // Camp: rows of dongas + the mess. SAND walls, HIDE roofs.
+    outlinedRect(ctx, mx - 26, my - 16, 14, 9, PAL.SAND[2]);
+    outlinedRect(ctx, mx - 8, my - 13, 14, 9, PAL.SAND[2]);
+    outlinedRect(ctx, mx + 10, my - 16, 14, 9, PAL.SAND[2]);
+    ctx.fillStyle = PAL.HIDE[0];
     ctx.fillRect(mx - 26, my - 19, 14, 4);
     ctx.fillRect(mx - 8, my - 16, 14, 4);
     ctx.fillRect(mx + 10, my - 19, 14, 4);
-    // Flagpole.
+    // Flagpole — steel in ink, like the windmill.
     ctx.strokeStyle = OUTLINE;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(mx + 28, my - 8);
+    ctx.lineTo(mx + 28, my - 26);
+    ctx.stroke();
+    ctx.strokeStyle = PAL.STEEL[1];
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(mx + 28, my - 8);
     ctx.lineTo(mx + 28, my - 26);
     ctx.stroke();
-    ctx.fillStyle = '#e8b60f';
+    ctx.fillStyle = PAL.GOLD[1];
     ctx.fillRect(mx + 28, my - 26, 7, 4);
   }
 }

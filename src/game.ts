@@ -24,7 +24,7 @@ import { CONSULTANTS, ConsultantTier, generateTruth, ProjectTruth, tierOf } from
 import { drawEvent, QuarterEvent } from './core/events';
 import { FIRM } from './core/branding';
 import { fmtMoney, fmtOz } from './core/econ';
-import { canvasSize, pick, render, TH, tileScreen, TW } from './ui/isomap';
+import { canvasSize, PAL, pick, render, TH, tileScreen, TW } from './ui/isomap';
 import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray';
 import {
   isMuted, pulseIfChanged, sClick, sDing, sDrillStart, sDrillStop, sFanfare, shake, sKaching, sPour, sSlam, sSting, sThud, sTick, toggleMute,
@@ -145,6 +145,13 @@ let floodUntil = 0;
 // Idle detection: flies gather, the Geo gets impatient.
 let lastTapAt = performance.now();
 let idleQuipDone = false;
+
+/** Art Bible rule 4: sun is screen-right, every grounded sprite casts a
+ *  3px shadow nudged 2px LEFT. Shadows stay grounded when bodies don't. */
+function groundShadow(cx: number, groundY: number, w: number): void {
+  ctx.fillStyle = 'rgba(34, 24, 18, 0.35)';
+  ctx.fillRect(Math.round(cx - w / 2 - 2), Math.round(groundY), w, 3);
+}
 const heatWarm = new Float32Array(MAP * MAP);
 const heatCold = new Float32Array(MAP * MAP);
 
@@ -1159,7 +1166,7 @@ function draw(): void {
   const aeroT = performance.now() - aeroStart;
   if (aeroT < AERO_MS + 200) {
     const { w: LW, h: LH } = canvasSize();
-    const ly = (aeroT / AERO_MS) * LH;
+    const ly = Math.round((aeroT / AERO_MS) * LH);
     ctx.fillStyle = 'rgba(196, 162, 248, 0.75)';
     ctx.fillRect(0, ly, LW, 2.5);
     ctx.fillStyle = 'rgba(196, 162, 248, 0.18)';
@@ -1173,9 +1180,9 @@ function draw(): void {
     const len = Math.hypot(dirX, dirY) || 1;
     const ux = dirX / len;
     const uy = dirY / len;
-    const pulse = 20 + Math.sin(animTick / 5) * 5;
-    const hx = hint.sx + ux * pulse;
-    const hy = hint.sy + 8 + uy * pulse;
+    const pulse = 20 + Math.round(Math.sin(animTick / 5) * 5);
+    const hx = Math.round(hint.sx + ux * pulse);
+    const hy = Math.round(hint.sy + 8 + uy * pulse);
     ctx.fillStyle = 'rgba(240, 192, 64, 0.95)';
     ctx.beginPath();
     ctx.moveTo(hx + ux * 10, hy + uy * 10);
@@ -1183,8 +1190,8 @@ function draw(): void {
     ctx.lineTo(hx + uy * 6, hy - ux * 6);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#221812';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = PAL.INK;
+    ctx.lineWidth = 2;
     ctx.stroke();
   }
 
@@ -1224,26 +1231,28 @@ function draw(): void {
     const jx = d.phase === 'drill' ? Math.round(Math.sin(el / 12) * 1.4) : 0;
     const O = '#221812';
 
-    // Truck: chassis, cab, wheels, exhaust.
+    // Truck: shadow first (sun screen-right), then chassis, cab, wheels.
+    groundShadow(sx - 3 + jx, sy + 7, 28);
     ctx.fillStyle = O;
-    ctx.fillRect(sx - 16 + jx, sy - 3, 26, 8);
-    ctx.fillStyle = '#e8c559';
+    ctx.fillRect(sx - 17 + jx, sy - 4, 28, 10);
+    ctx.fillStyle = PAL.CAT; // machinery wears CAT — gold is for gold
     ctx.fillRect(sx - 15 + jx, sy - 2, 24, 6);
-    ctx.fillStyle = '#c8ccd2';
+    ctx.fillStyle = PAL.STEEL[2];
     ctx.fillRect(sx - 15 + jx, sy - 7, 7, 6); // cab
-    ctx.fillStyle = '#3a3f47';
+    ctx.fillStyle = PAL.STEEL[0];
     ctx.fillRect(sx - 14 + jx, sy - 6, 3, 3); // windscreen
-    ctx.fillStyle = '#111';
-    for (const wx of [-12, -4, 4]) {
-      ctx.beginPath();
-      ctx.arc(sx + wx + jx, sy + 6, 2.6, 0, Math.PI * 2);
-      ctx.fill();
+    for (const wx of [-13, -5, 3]) {
+      // Wheels are pixel squares, not AA donuts (rule 3).
+      ctx.fillStyle = O;
+      ctx.fillRect(sx + wx + jx, sy + 4, 4, 4);
+      ctx.fillStyle = PAL.STEEL[1];
+      ctx.fillRect(sx + wx + 1 + jx, sy + 5, 2, 2);
     }
     // Mast: raises during the slam, braced when up.
     const mastH = d.phase === 'slam' ? Math.min(30, el * 0.25) : 30;
     ctx.fillStyle = O;
     ctx.fillRect(sx + 3 + jx, sy - mastH - 2, 7, mastH + 4);
-    ctx.fillStyle = '#f0c040';
+    ctx.fillStyle = PAL.CAT;
     ctx.fillRect(sx + 4 + jx, sy - mastH - 1, 5, mastH + 2);
     ctx.strokeStyle = O;
     ctx.lineWidth = 1;
@@ -1258,11 +1267,11 @@ function draw(): void {
       const hy = sy - 26 + ((el % 660) / 660) * 20;
       ctx.fillStyle = O;
       ctx.fillRect(sx + 1 + jx, hy - 1, 11, 6);
-      ctx.fillStyle = '#c94f3f';
+      ctx.fillStyle = PAL.ALERT;
       ctx.fillRect(sx + 2 + jx, hy, 9, 4);
-      ctx.fillStyle = '#8a8f98';
+      ctx.fillStyle = PAL.STEEL[1];
       ctx.fillRect(sx + 5 + jx, hy + 4, 3, sy - hy - 2);
-      // Collar dust ring + exhaust chuffs.
+      // Collar dust ring + exhaust chuffs (particles: round, unoutlined).
       ctx.fillStyle = 'rgba(214, 190, 160, 0.85)';
       ctx.beginPath();
       ctx.arc(sx + 6 + jx + Math.sin(el / 60) * 3, sy + 1, 3 + (el % 240) / 90, 0, Math.PI * 2);
@@ -1272,21 +1281,22 @@ function draw(): void {
       ctx.arc(sx - 17 + jx, sy - 9 - (el % 500) / 45, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
-    // The driller: hi-vis, hard hat, professionally unbothered.
+    // The driller: 8px person (scale ladder), hi-vis, professionally unbothered.
     const armUp = Math.floor(el / 520) % 2 === 0;
+    groundShadow(sx - 21, sy + 2, 8);
     ctx.fillStyle = O;
-    ctx.fillRect(sx - 23, sy - 9, 5, 10);
-    ctx.fillStyle = '#ff7a1a';
-    ctx.fillRect(sx - 22, sy - 8, 3, 5); // hi-vis
-    ctx.fillStyle = '#2a2f3a';
-    ctx.fillRect(sx - 22, sy - 3, 3, 4); // pants
-    ctx.fillStyle = '#f2ede2';
-    ctx.fillRect(sx - 22, sy - 11, 3, 3); // head + hat
+    ctx.fillRect(sx - 23, sy - 6, 5, 8);
+    ctx.fillStyle = PAL.HIVIS;
+    ctx.fillRect(sx - 22, sy - 5, 3, 4); // hi-vis
+    ctx.fillStyle = PAL.STEEL[0];
+    ctx.fillRect(sx - 22, sy - 1, 3, 3); // pants
+    ctx.fillStyle = PAL.SAND[2];
+    ctx.fillRect(sx - 22, sy - 8, 3, 2); // face
     ctx.fillStyle = '#fff';
-    ctx.fillRect(sx - 23, sy - 12, 5, 2);
+    ctx.fillRect(sx - 23, sy - 9, 5, 2); // hard hat
     if (armUp) {
-      ctx.fillStyle = '#ff7a1a';
-      ctx.fillRect(sx - 25, sy - 8, 2, 3); // pointing at the hole, obviously
+      ctx.fillStyle = PAL.HIVIS;
+      ctx.fillRect(sx - 25, sy - 5, 2, 2); // pointing at the hole, obviously
     }
   }
 
@@ -1308,28 +1318,36 @@ function draw(): void {
       const ph = ((performance.now() + i * 2100) % period) / period; // 0..1
       const leg = ph < 0.5 ? ph * 2 : (1 - ph) * 2; // there and back
       const loaded = ph < 0.5;
-      const tx = a.sx + (b.sx - a.sx) * leg;
-      const ty = a.sy + (b.sy - a.sy) * leg - 4;
-      ctx.fillStyle = '#221812';
-      ctx.fillRect(tx - 8, ty - 6, 17, 9);
-      ctx.fillStyle = '#e8c559';
-      ctx.fillRect(tx - 7, ty - 5, 15, 7);
-      ctx.fillStyle = '#221812';
-      ctx.fillRect(tx + 4, ty - 9, 5, 4); // cab
+      // Scale ladder: the hauler is the biggest wheeled thing on the map.
+      const tx = Math.round(a.sx + (b.sx - a.sx) * leg);
+      const ty = Math.round(a.sy + (b.sy - a.sy) * leg - 5);
+      groundShadow(tx + 2, ty + 8, 30);
+      ctx.fillStyle = PAL.INK;
+      ctx.fillRect(tx - 14, ty - 8, 32, 13);
+      ctx.fillStyle = PAL.CAT;
+      ctx.fillRect(tx - 12, ty - 6, 28, 9);
+      ctx.fillStyle = PAL.INK;
+      ctx.fillRect(tx + 8, ty - 13, 8, 6); // cab
+      ctx.fillStyle = PAL.STEEL[2];
+      ctx.fillRect(tx + 9, ty - 12, 6, 4);
       if (loaded) {
-        ctx.fillStyle = '#8a6b48';
-        ctx.fillRect(tx - 5, ty - 8, 8, 3);
+        ctx.fillStyle = PAL.HIDE[1];
+        ctx.fillRect(tx - 10, ty - 10, 14, 4); // the ore heap
+        ctx.fillStyle = PAL.HIDE[2];
+        ctx.fillRect(tx - 8, ty - 11, 8, 2);
       }
-      ctx.fillStyle = '#111';
-      ctx.beginPath();
-      ctx.arc(tx - 4, ty + 3, 2, 0, Math.PI * 2);
-      ctx.arc(tx + 3, ty + 3, 2, 0, Math.PI * 2);
-      ctx.fill();
+      for (const wx of [-11, -2, 7]) {
+        // 5px wheels: ink square, steel hub — no AA donuts.
+        ctx.fillStyle = PAL.INK;
+        ctx.fillRect(tx + wx, ty + 3, 5, 5);
+        ctx.fillStyle = PAL.STEEL[1];
+        ctx.fillRect(tx + wx + 1, ty + 4, 3, 3);
+      }
       // dust
       if (((animTick | 0) + i * 7) % 3 === 0) {
         ctx.fillStyle = 'rgba(214,190,160,0.5)';
         ctx.beginPath();
-        ctx.arc(tx - 10 * (loaded ? 1 : -1), ty + 2, 2.5, 0, Math.PI * 2);
+        ctx.arc(tx - 16 * (loaded ? 1 : -1), ty + 4, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -1342,15 +1360,16 @@ function drawStation(): void {
   const O = '#221812';
   const wm = tileScreen(1, 10, S.world.tiles[idx(1, 10)].elev);
   const cow = (ox: number, oy: number, ph: number, patch: boolean): void => {
-    const cx = wm.sx + ox;
-    const cy = wm.sy + oy;
+    const cx = Math.round(wm.sx + ox);
+    const cy = Math.round(wm.sy + oy);
     const grazing = Math.floor((animTick + ph) / 30) % 3 !== 0;
+    groundShadow(cx, cy + 4, 14);
     ctx.fillStyle = O;
     ctx.fillRect(cx - 6, cy - 7, 13, 8);
-    ctx.fillStyle = '#8a6b4f';
+    ctx.fillStyle = PAL.HIDE[1];
     ctx.fillRect(cx - 5, cy - 6, 11, 6);
     if (patch) {
-      ctx.fillStyle = '#e8e2d4';
+      ctx.fillStyle = PAL.SAND[2];
       ctx.fillRect(cx - 2, cy - 6, 4, 4);
     }
     ctx.fillStyle = O; // head — down grazing, up chewing
@@ -1359,7 +1378,7 @@ function drawStation(): void {
     ctx.fillRect(cx + 3, cy + 1, 2, 3);
     if ((animTick + ph) % 45 < 5) {
       ctx.strokeStyle = O; // tail flick
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(cx - 6, cy - 5);
       ctx.lineTo(cx - 10, cy - 8);
@@ -1377,10 +1396,10 @@ function drawIdleFlies(): void {
   const anchor = S.fingerDone ? { x: MAP >> 1, y: MAP >> 1 } : S.fingerTarget;
   const t = S.world.tiles[idx(anchor.x, anchor.y)];
   const { sx, sy } = tileScreen(anchor.x, anchor.y, t.elev);
-  ctx.fillStyle = '#15130f';
+  ctx.fillStyle = PAL.INK;
   for (let i = 0; i < 3; i++) {
     const a = animTick / 4 + i * 2.1;
-    ctx.fillRect(sx + Math.cos(a) * (9 + i * 3), sy - 6 + Math.sin(a * 1.4) * 6, 2, 2);
+    ctx.fillRect(Math.round(sx + Math.cos(a) * (9 + i * 3)), Math.round(sy - 6 + Math.sin(a * 1.4) * 6), 2, 2);
   }
   if (!idleQuipDone) {
     idleQuipDone = true;
@@ -1428,29 +1447,32 @@ function drawCritters(): void {
     const age = now - c.born;
     if (c.kind === 'roo') {
       c.x -= 0.058 * frameDt;
+      const rx = Math.round(c.x);
       const hop = Math.abs(Math.sin(age / 260)) * 15;
-      const y = c.y - hop;
+      const y = Math.round(c.y - hop);
       const airborne = hop > 4;
+      // The shadow stays on the ground while the body flies — free charm.
+      groundShadow(rx, c.y + 4, 14);
       ctx.fillStyle = O;
-      ctx.fillRect(c.x - 7, y - 9, 12, 8); // body outline
-      ctx.fillStyle = '#a97d54';
-      ctx.fillRect(c.x - 6, y - 8, 10, 6); // body
-      ctx.fillRect(c.x + 3, y - 13, 4, 6); // head up
+      ctx.fillRect(rx - 7, y - 9, 12, 8); // body outline
+      ctx.fillStyle = PAL.HIDE[2];
+      ctx.fillRect(rx - 6, y - 8, 10, 6); // body
+      ctx.fillRect(rx + 3, y - 13, 4, 6); // head up
       ctx.fillStyle = O;
-      ctx.fillRect(c.x + 4, y - 16, 2, 3); // ears
-      ctx.fillRect(c.x + 7, y - 15, 1, 2);
-      ctx.fillStyle = '#8a6540';
-      ctx.fillRect(c.x - 12, y - 6, 6, 3); // tail
+      ctx.fillRect(rx + 4, y - 16, 2, 3); // ears
+      ctx.fillRect(rx + 7, y - 15, 1, 2);
+      ctx.fillStyle = PAL.HIDE[0];
+      ctx.fillRect(rx - 12, y - 6, 6, 3); // tail
       ctx.fillStyle = O;
       if (airborne) {
-        ctx.fillRect(c.x - 4, y - 2, 3, 4); // legs tucked
-        ctx.fillRect(c.x + 1, y - 2, 3, 4);
+        ctx.fillRect(rx - 4, y - 2, 3, 4); // legs tucked
+        ctx.fillRect(rx + 1, y - 2, 3, 4);
       } else {
-        ctx.fillRect(c.x - 5, y - 2, 3, 6);
-        ctx.fillRect(c.x + 2, y - 2, 3, 6);
+        ctx.fillRect(rx - 5, y - 2, 3, 6);
+        ctx.fillRect(rx + 2, y - 2, 3, 6);
         ctx.fillStyle = 'rgba(214,190,160,0.6)'; // landing dust
         ctx.beginPath();
-        ctx.arc(c.x + 6, c.y + 3, 2.5, 0, Math.PI * 2);
+        ctx.arc(rx + 6, c.y + 3, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     } else if (c.kind === 'roadtrain') {
@@ -1464,12 +1486,13 @@ function drawCritters(): void {
         const p = tileScreen(t, 3, 0.58);
         const ux = p.sx;
         const uy = p.sy;
+        groundShadow(ux + 1, uy + 8, 24);
         ctx.fillStyle = O;
         ctx.fillRect(ux - 11, uy - 6, 24, 11);
-        ctx.fillStyle = isCab ? '#c94f3f' : '#c8ccd2';
+        ctx.fillStyle = isCab ? PAL.ALERT : PAL.STEEL[2];
         ctx.fillRect(ux - 10, uy - 5, 22, 9);
         if (isCab) {
-          ctx.fillStyle = '#3a3f47';
+          ctx.fillStyle = PAL.STEEL[0];
           ctx.fillRect(ux + 5, uy - 4, 5, 4); // windscreen
           ctx.fillStyle = O;
           ctx.fillRect(ux + 1, uy - 11, 2, 6); // exhaust stack
@@ -1478,11 +1501,12 @@ function drawCritters(): void {
           ctx.arc(ux + 2, uy - 15 - (age % 400) / 60, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.fillStyle = '#111';
-        for (const wx of [-7, 0, 7]) {
-          ctx.beginPath();
-          ctx.arc(ux + wx, uy + 5, 2.2, 0, Math.PI * 2);
-          ctx.fill();
+        for (const wx of [-8, -1, 6]) {
+          // Square wheels read rounder than AA donuts at this size.
+          ctx.fillStyle = O;
+          ctx.fillRect(ux + wx, uy + 3, 4, 4);
+          ctx.fillStyle = PAL.STEEL[1];
+          ctx.fillRect(ux + wx + 1, uy + 4, 2, 2);
         }
       };
       for (let u = 3; u >= 1; u--) unit(c.x - u * 1.05, false);
@@ -1497,28 +1521,29 @@ function drawCritters(): void {
       // A file of emus: small bodies, periscope necks, ridiculous legs.
       c.x -= 0.03 * frameDt;
       for (let i = 0; i < 3; i++) {
-        const bx = c.x + i * 17;
-        const by = c.y + (i % 2) * 3;
+        const bx = Math.round(c.x + i * 17);
+        const by = Math.round(c.y + (i % 2) * 3);
         const step = Math.floor((age / 110 + i) % 2) === 0;
+        groundShadow(bx, by + 1, 12);
         ctx.fillStyle = O;
-        ctx.fillRect(bx - 5, by - 15, 11, 8); // body outline
-        ctx.fillStyle = '#7a6a58';
-        ctx.fillRect(bx - 4, by - 14, 9, 6);
+        ctx.fillRect(bx - 5, by - 13, 11, 7); // body outline (18px tall total)
+        ctx.fillStyle = PAL.HIDE[1];
+        ctx.fillRect(bx - 4, by - 12, 9, 5);
         ctx.fillStyle = O; // neck + head, always suspicious
-        ctx.fillRect(bx - 4, by - 24, 2, 10);
-        ctx.fillRect(bx - 6, by - 25, 4, 3);
+        ctx.fillRect(bx - 4, by - 19, 2, 7);
+        ctx.fillRect(bx - 6, by - 20, 4, 3);
         ctx.strokeStyle = O; // the legs
         ctx.lineWidth = 2;
         ctx.beginPath();
         if (step) {
-          ctx.moveTo(bx - 2, by - 8);
+          ctx.moveTo(bx - 2, by - 6);
           ctx.lineTo(bx - 5, by);
-          ctx.moveTo(bx + 2, by - 8);
+          ctx.moveTo(bx + 2, by - 6);
           ctx.lineTo(bx + 4, by - 1);
         } else {
-          ctx.moveTo(bx - 2, by - 8);
+          ctx.moveTo(bx - 2, by - 6);
           ctx.lineTo(bx - 1, by);
-          ctx.moveTo(bx + 2, by - 8);
+          ctx.moveTo(bx + 2, by - 6);
           ctx.lineTo(bx + 6, by - 2);
         }
         ctx.stroke();
@@ -1527,7 +1552,7 @@ function drawCritters(): void {
       c.x -= 0.014 * frameDt;
       const sway = Math.sin(age / 300) * 6;
       for (let i = 0; i < 4; i++) {
-        ctx.fillStyle = `rgba(206, 178, 144, ${0.32 - i * 0.05})`;
+        ctx.fillStyle = `rgba(214, 190, 160, ${0.32 - i * 0.05})`; // one DUST, alpha varies
         ctx.beginPath();
         ctx.arc(
           c.x + sway * (i / 3) + Math.sin(age / 90 + i * 2) * (2 + i * 1.5),
@@ -1542,21 +1567,24 @@ function drawCritters(): void {
       c.x += 0.113 * frameDt;
       const flap = Math.floor(age / 110) % 2 === 0;
       for (let i = 0; i < 3; i++) {
-        const bx = c.x - i * 14;
-        const by = c.y + (i % 2) * 7;
-        ctx.strokeStyle = '#e8a0b4'; // galah pink
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        if (flap) {
-          ctx.moveTo(bx - 4, by - 3);
-          ctx.lineTo(bx, by);
-          ctx.lineTo(bx + 4, by - 3);
-        } else {
-          ctx.moveTo(bx - 4, by + 2);
-          ctx.lineTo(bx, by);
-          ctx.lineTo(bx + 4, by + 2);
+        const bx = Math.round(c.x - i * 14);
+        const by = Math.round(c.y + (i % 2) * 7);
+        // Ink under-stroke first — even birds wear the outline.
+        for (const [w2, col] of [[4, O], [2, PAL.GALAH]] as Array<[number, string]>) {
+          ctx.strokeStyle = col;
+          ctx.lineWidth = w2;
+          ctx.beginPath();
+          if (flap) {
+            ctx.moveTo(bx - 4, by - 3);
+            ctx.lineTo(bx, by);
+            ctx.lineTo(bx + 4, by - 3);
+          } else {
+            ctx.moveTo(bx - 4, by + 2);
+            ctx.lineTo(bx, by);
+            ctx.lineTo(bx + 4, by + 2);
+          }
+          ctx.stroke();
         }
-        ctx.stroke();
       }
     }
   }
