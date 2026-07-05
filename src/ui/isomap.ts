@@ -264,12 +264,12 @@ export function render(
         ctx.stroke();
         ctx.setLineDash([]);
       } else if (t.terrain === Terrain.OldPit) {
-        // Abandoned benches, a rusty relic, a sagging fence.
+        // Abandoned benches, a rusty relic, a sagging fence — ROCK ink.
         diamond(ctx, sx, sy);
-        ctx.strokeStyle = 'rgba(58, 42, 28, 0.9)';
+        ctx.strokeStyle = PAL.ROCK[0];
         ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(74, 54, 38, 0.8)';
+        ctx.strokeStyle = PAL.ROCK[0];
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(sx, sy + 5);
@@ -280,6 +280,8 @@ export function render(
         ctx.stroke();
         if (x === Math.floor(OLD_PIT.x) && y === Math.floor(OLD_PIT.y)) {
           // The rusted ute of legend, and its resident crow.
+          ctx.fillStyle = 'rgba(34, 24, 18, 0.35)'; // even legends cast shadows
+          ctx.fillRect(sx - 8, sy + 13, 11, 3);
           ctx.fillStyle = OUTLINE;
           ctx.fillRect(sx - 5, sy + 8, 11, 5);
           ctx.fillStyle = PAL.DIRT[0]; // rust IS shadow-dirt — the desert wins
@@ -302,6 +304,8 @@ export function render(
         }
       } else if (t.terrain === Terrain.Windmill) {
         // Southern Cross windmill — steel legs inside ink, spinning in steps.
+        ctx.fillStyle = 'rgba(34, 24, 18, 0.35)';
+        ctx.fillRect(sx - 8, sy + 10, 10, 3); // grounded, like everything else
         ctx.strokeStyle = OUTLINE;
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -414,8 +418,8 @@ export function render(
         }
         diamond(ctx, sx, sy);
         if (pit.dug) {
-          // Excavated: benches at the rim, deeper floor inside.
-          ctx.fillStyle = boundary ? '#6b543c' : '#463526';
+          // Excavated: benches at the rim, deeper floor inside — ROCK ramp.
+          ctx.fillStyle = boundary ? PAL.ROCK[1] : PAL.ROCK[0];
           ctx.fill();
           ctx.strokeStyle = 'rgba(20, 14, 9, 0.8)';
           ctx.lineWidth = boundary ? 2 : 1;
@@ -585,7 +589,7 @@ function drawBuilding(ctx: CanvasRenderingContext2D, world: World, b: Placed, ti
     outlinedRect(ctx, mx - 20, my - 9, 20, 8, PAL.STEEL[1]);
     const spin = Math.floor(tick / 4) % 4;
     ctx.fillStyle = PAL.STEEL[0];
-    ctx.fillRect(mx - 19 + spin * 4, my - 8, 4, 6);
+    ctx.fillRect(mx - 19 + spin * 5, my - 8, 4, 6);
     // Stack with a red band.
     outlinedRect(ctx, mx + 12, my - 40, 8, 38, PAL.STEEL[0]);
     ctx.fillStyle = PAL.ALERT;

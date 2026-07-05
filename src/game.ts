@@ -1168,7 +1168,7 @@ function draw(): void {
     const { w: LW, h: LH } = canvasSize();
     const ly = Math.round((aeroT / AERO_MS) * LH);
     ctx.fillStyle = 'rgba(196, 162, 248, 0.75)';
-    ctx.fillRect(0, ly, LW, 2.5);
+    ctx.fillRect(0, ly, LW, 3);
     ctx.fillStyle = 'rgba(196, 162, 248, 0.18)';
     ctx.fillRect(0, ly - 14, LW, 14);
   }
@@ -1292,7 +1292,7 @@ function draw(): void {
     ctx.fillRect(sx - 22, sy - 1, 3, 3); // pants
     ctx.fillStyle = PAL.SAND[2];
     ctx.fillRect(sx - 22, sy - 8, 3, 2); // face
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = PAL.STEEL[2];
     ctx.fillRect(sx - 23, sy - 9, 5, 2); // hard hat
     if (armUp) {
       ctx.fillStyle = PAL.HIVIS;
@@ -1490,7 +1490,7 @@ function drawCritters(): void {
         ctx.fillStyle = O;
         ctx.fillRect(ux - 11, uy - 6, 24, 11);
         ctx.fillStyle = isCab ? PAL.ALERT : PAL.STEEL[2];
-        ctx.fillRect(ux - 10, uy - 5, 22, 9);
+        ctx.fillRect(ux - 9, uy - 4, 20, 7); // 2px ink inset — big sprites earn it
         if (isCab) {
           ctx.fillStyle = PAL.STEEL[0];
           ctx.fillRect(ux + 5, uy - 4, 5, 4); // windscreen

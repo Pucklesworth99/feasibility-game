@@ -1139,7 +1139,7 @@ body {
   height: 28px;
   border: 2px solid #221812;
   border-radius: 5px;
-  background: #31353c;
+  background: #3A3F47;
   transform: rotateX(88deg);
   transition: transform 0.11s ease-out;
 }
@@ -1174,13 +1174,14 @@ body {
 .seg-deep {
   background:
     radial-gradient(circle at 50% 88%, rgba(240, 192, 64, 0.9) 0 1.5px, transparent 3px),
-    linear-gradient(180deg, #2e333b 0 68%, #23272e 68%);
+    linear-gradient(180deg, #3A3F47 0 68%, #221812 68%);
 }
 
 .seg-fleck {
+  /* Same rock as seg-rock2 — a traces core IS that ground, plus one vein. */
   background:
-    linear-gradient(115deg, transparent 0 62%, #f0c040 62% 66%, transparent 66%),
-    linear-gradient(105deg, #62676f 0 30%, #71767e 30% 58%, #565b63 58% 82%, #6a6f77 82%);
+    linear-gradient(115deg, transparent 0 62%, #F0C040 62% 66%, transparent 66%),
+    linear-gradient(105deg, #B99868 0 30%, #CEB68A 30% 58%, #745636 58% 82%, #B99868 82%);
 }
 
 /* Grade stamp */
