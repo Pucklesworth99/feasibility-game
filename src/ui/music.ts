@@ -115,17 +115,17 @@ function startWind(): void {
   for (let i = 0; i < len; i++) {
     const w = Math.random() * 2 - 1;
     last = (last + 0.02 * w) / 1.02;
-    d[i] = last * 6;
+    d[i] = last * 4;
   }
   windSrc = ctx.createBufferSource();
   windSrc.buffer = buf;
   windSrc.loop = true;
   const f = ctx.createBiquadFilter();
-  f.type = 'bandpass';
-  f.frequency.value = 320;
-  f.Q.value = 0.6;
+  f.type = 'lowpass'; // a soft hush, not a bandpass whistle
+  f.frequency.value = 240;
+  f.Q.value = 0.4;
   const g = ctx.createGain();
-  g.gain.value = 0.5;
+  g.gain.value = 0.05; // barely-there breath under the music
   windSrc.connect(f).connect(g).connect(master!);
   windSrc.start();
 }
