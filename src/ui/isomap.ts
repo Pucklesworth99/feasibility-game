@@ -146,6 +146,92 @@ function terrainFill(t: Terrain, elev: number): string {
   }
 }
 
+/** Per-terrain [shadow, base, light] for dither grain. Highway stays flat. */
+const TERRAIN_RAMP: Partial<Record<Terrain, readonly [string, string, string]>> = {
+  [Terrain.Plain]: [PAL.DIRT[0], PAL.DIRT[1], PAL.DIRT[2]],
+  [Terrain.Hill]: [PAL.DIRT[1], PAL.DIRT[2], PAL.SAND[1]],
+  [Terrain.Outcrop]: [PAL.ROCK[0], PAL.ROCK[1], PAL.ROCK[2]],
+  [Terrain.SaltLake]: [PAL.SAND[1], PAL.SAND[2], '#FFFFFF'],
+  [Terrain.Creek]: [PAL.SAND[0], PAL.SAND[1], PAL.SAND[2]],
+  [Terrain.Workings]: [PAL.DIRT[0], PAL.DIRT[1], PAL.DIRT[2]],
+  [Terrain.Heritage]: [PAL.DIRT[0], PAL.DIRT[1], PAL.DIRT[2]],
+  [Terrain.OldPit]: [PAL.ROCK[0], PAL.ROCK[0], PAL.ROCK[1]],
+  [Terrain.Windmill]: [PAL.DIRT[0], PAL.DIRT[1], PAL.DIRT[2]],
+};
+
+// Dither dots on an 8×8 cell — scattered so it tiles without a checkerboard.
+// This is what turns flat vector fills into pixel-art ground grain.
+const SHADE_DOTS = [[1, 1], [5, 4], [3, 6]];
+const LIGHT_DOTS = [[4, 1], [1, 4], [6, 6]];
+const texCache = new Map<Terrain, CanvasPattern | null>();
+
+function terrainTexture(ctx: CanvasRenderingContext2D, terr: Terrain): CanvasPattern | null {
+  if (texCache.has(terr)) return texCache.get(terr)!;
+  const ramp = TERRAIN_RAMP[terr];
+  if (!ramp) {
+    texCache.set(terr, null);
+    return null;
+  }
+  const oc = document.createElement('canvas');
+  oc.width = 8;
+  oc.height = 8;
+  const o = oc.getContext('2d')!;
+  o.fillStyle = ramp[1];
+  o.fillRect(0, 0, 8, 8);
+  const soft = terr === Terrain.SaltLake ? 1 : SHADE_DOTS.length; // salt barely grains
+  o.fillStyle = ramp[0];
+  for (let i = 0; i < soft; i++) o.fillRect(SHADE_DOTS[i][0], SHADE_DOTS[i][1], 2, 2);
+  o.fillStyle = ramp[2];
+  for (let i = 0; i < soft; i++) o.fillRect(LIGHT_DOTS[i][0], LIGHT_DOTS[i][1], 2, 2);
+  const pat = ctx.createPattern(oc, 'repeat');
+  texCache.set(terr, pat);
+  return pat;
+}
+
+/** Depth into the pit per tile (0 = not pit, 1 = rim, higher = deeper).
+ *  Multi-source BFS from every non-pit / off-map cell — this is the
+ *  neighbour-awareness that makes the benches step correctly. */
+function pitDepth(mask: Uint8Array): Int16Array {
+  const depth = new Int16Array(MAP * MAP);
+  const q: number[] = [];
+  for (let y = 0; y < MAP; y++) {
+    for (let x = 0; x < MAP; x++) {
+      const i = idx(x, y);
+      if (!mask[i]) continue;
+      // Rim = a pit tile touching a non-pit or the map edge.
+      let rim = false;
+      for (let d = 0; d < 4 && !rim; d++) {
+        const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0);
+        const ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
+        if (!inMap(nx, ny) || !mask[idx(nx, ny)]) rim = true;
+      }
+      if (rim) {
+        depth[i] = 1;
+        q.push(i);
+      }
+    }
+  }
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h];
+    const x = i % MAP;
+    const y = (i / MAP) | 0;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + (d === 0 ? 1 : d === 1 ? -1 : 0);
+      const ny = y + (d === 2 ? 1 : d === 3 ? -1 : 0);
+      if (!inMap(nx, ny)) continue;
+      const j = idx(nx, ny);
+      if (mask[j] && depth[j] === 0) {
+        depth[j] = depth[i] + 1;
+        q.push(j);
+      }
+    }
+  }
+  return depth;
+}
+
+// Bench floor palette: rim (lit) → deep (near-ink), for the terraced bowl.
+const PIT_SHADE = ['#A8845C', '#745636', '#5A4230', '#43301F', '#2E2014'];
+
 export function render(
   ctx: CanvasRenderingContext2D,
   world: World,
@@ -190,9 +276,11 @@ export function render(
       ctx.closePath();
       ctx.fill();
 
-      // Top face + edge so tiles read individually.
+      // Top face: a dither-grain pattern (carries its own base colour) turns
+      // flat vector fills into pixel-art ground; highway stays flat asphalt.
       diamond(ctx, sx, sy);
-      ctx.fillStyle = terrainFill(t.terrain, t.elev);
+      const tex = terrainTexture(ctx, t.terrain);
+      ctx.fillStyle = tex ?? terrainFill(t.terrain, t.elev);
       ctx.fill();
       ctx.strokeStyle = 'rgba(34, 24, 18, 0.22)'; // the grid line is INK too
       ctx.lineWidth = 1;
@@ -402,7 +490,81 @@ export function render(
   }
 
   // Pit shell.
-  if (pit) {
+  if (pit && pit.dug) {
+    // A terraced open-cut: concentric benches stepping down to the orebody,
+    // each tile's walls drawn against its SHALLOWER neighbours.
+    const depth = pitDepth(pit.mask);
+    const maxD = Math.max(1, ...depth);
+    for (let s = 0; s <= 2 * (MAP - 1); s++) {
+      for (let x = Math.max(0, s - MAP + 1); x <= Math.min(MAP - 1, s); x++) {
+        const y = s - x;
+        const i = idx(x, y);
+        const d = depth[i];
+        if (!d) continue;
+        const t = world.tiles[i];
+        const { sx, sy } = tileScreen(x, y, t.elev);
+        const shade = PIT_SHADE[Math.min(PIT_SHADE.length - 1, d - 1)];
+
+        // Floor.
+        diamond(ctx, sx, sy);
+        ctx.fillStyle = shade;
+        ctx.fill();
+
+        // Terrace step: where a neighbour is SHALLOWER, this edge is a riser —
+        // dark shadow line + a lit crest just inside → concentric benches.
+        const nb = (nx: number, ny: number): number =>
+          !inMap(nx, ny) || !pit.mask[idx(nx, ny)] ? 0 : depth[idx(nx, ny)];
+        const T = { x: sx, y: sy };
+        const R = { x: sx + TW / 2, y: sy + TH / 2 };
+        const B = { x: sx, y: sy + TH };
+        const L = { x: sx - TW / 2, y: sy + TH / 2 };
+        const step = (a: { x: number; y: number }, b: { x: number; y: number }, nd: number): void => {
+          if (nd >= d) return; // deeper/equal neighbour draws its own edge
+          ctx.strokeStyle = 'rgba(20,12,6,0.7)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,238,205,0.28)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y - 2);
+          ctx.lineTo(b.x, b.y - 2);
+          ctx.stroke();
+        };
+        step(R, B, nb(x + 1, y)); // front-right edge
+        step(B, L, nb(x, y + 1)); // front-left edge
+        step(T, R, nb(x, y - 1)); // back-right
+        step(L, T, nb(x - 1, y)); // back-left
+
+        // Rubble speckle + bench crest lines toward deeper neighbours.
+        const h = (x * 7 + y * 13) % 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(sx - 6 + h * 2, sy + 8, 2, 2);
+        ctx.fillRect(sx + 3, sy + 5 + h, 2, 2);
+        ctx.fillStyle = 'rgba(255,240,210,0.14)';
+        ctx.fillRect(sx - 2, sy + 6, 2, 2);
+
+        // Exposed orebody at the floor — the gold you're actually mining.
+        if (t.oz > 4000 && d >= maxD - 1) {
+          ctx.fillStyle = PAL.GOLD[1];
+          ctx.fillRect(sx - 3, sy + 9, 2, 2);
+          ctx.fillStyle = PAL.GLINT;
+          ctx.fillRect(sx + 2, sy + 7, 2, 2);
+        }
+
+        // Rim highlight — the top edge of the whole pit catches the sun.
+        if (d === 1) {
+          diamond(ctx, sx, sy);
+          ctx.strokeStyle = 'rgba(255,240,210,0.35)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+  } else if (pit) {
+    // Planned: faint wash + dashed rim, like a pit design drawing.
     for (let y = 0; y < MAP; y++) {
       for (let x = 0; x < MAP; x++) {
         const i = idx(x, y);
@@ -419,24 +581,14 @@ export function render(
           }
         }
         diamond(ctx, sx, sy);
-        if (pit.dug) {
-          // Excavated: benches at the rim, deeper floor inside — ROCK ramp.
-          ctx.fillStyle = boundary ? PAL.ROCK[1] : PAL.ROCK[0];
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(20, 14, 9, 0.8)';
-          ctx.lineWidth = boundary ? 2 : 1;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fill();
+        if (boundary) {
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = 'rgba(245, 245, 240, 0.7)';
+          ctx.lineWidth = 2;
           ctx.stroke();
-        } else {
-          // Planned: faint wash + dashed rim, like a pit design drawing.
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-          ctx.fill();
-          if (boundary) {
-            ctx.setLineDash([5, 4]);
-            ctx.strokeStyle = 'rgba(245, 245, 240, 0.7)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.setLineDash([]);
-          }
+          ctx.setLineDash([]);
         }
       }
     }
