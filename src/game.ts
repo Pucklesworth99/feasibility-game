@@ -1476,6 +1476,11 @@ function drawCritters(): void {
       const airborne = hop > 4;
       // The shadow stays on the ground while the body flies — free charm.
       groundShadow(rx, c.y + 4, 14);
+      // Flip the sprite to face its direction of travel (it hops LEFT) —
+      // it was drawn facing right, so it looked like it hopped backwards.
+      ctx.save();
+      ctx.translate(2 * rx, 0);
+      ctx.scale(-1, 1);
       ctx.fillStyle = O;
       ctx.fillRect(rx - 7, y - 9, 12, 8); // body outline
       ctx.fillStyle = PAL.HIDE[2];
@@ -1498,6 +1503,7 @@ function drawCritters(): void {
         ctx.arc(rx + 6, c.y + 3, 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore();
     } else if (c.kind === 'roadtrain') {
       // Prime mover + three trailers, thundering down the highway (row 3).
       c.x += 0.0021 * frameDt;
