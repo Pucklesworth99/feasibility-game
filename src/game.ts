@@ -29,6 +29,7 @@ import { floatText, flyNuggets, gradeStamp, showTray, Segment } from './ui/tray'
 import {
   isMuted, pulseIfChanged, sClick, sDing, sDrillStart, sDrillStop, sFanfare, shake, sKaching, sPour, sSlam, sSting, sThud, sTick, toggleMute,
 } from './ui/juice';
+import { musicSwell, setMusicIntensity, startMusic } from './ui/music';
 
 // ---------- Tuning ----------
 
@@ -325,6 +326,7 @@ function recomputeHeat(): void {
 
 function onTap(x: number, y: number): void {
   if (S.over) return;
+  startMusic(); // first gesture — the context is live, the mine finds its pulse
   lastTapAt = performance.now();
   idleQuipDone = false;
   if (S.phase === 'place') {
@@ -984,6 +986,7 @@ function endRun(): void {
     </div>`;
   $('overlay').classList.remove('hidden');
   sFanfare(!S.acquired && shortfall > 10_000);
+  musicSwell();
   shake();
 
   document.querySelectorAll<HTMLButtonElement>('[data-shop]').forEach((b) => {
@@ -1143,6 +1146,26 @@ function hud(): void {
   pulseIfChanged('stat-cash');
   pulseIfChanged('stat-oz');
   pulseIfChanged('stat-value');
+
+  updateMusicIntensity();
+}
+
+/** Map game state → musical intensity. Quiet while you hunt; the groove
+ *  thickens and quickens as the mine roars toward mined-out (Balatro's rule). */
+function updateMusicIntensity(): void {
+  if (S.over) return;
+  let x = 0.05;
+  if (S.phase === 'explore') {
+    x = 0.05 + Math.min(0.3, resourceTotals(S.k).total / RESOURCE_OZ * 0.3);
+  } else if (S.phase === 'place') {
+    x = 0.5;
+  } else if (S.phase === 'ops' && S.ops) {
+    const mined = 1 - S.ops.pool / Math.max(1, S.ops.poolStart);
+    x = 0.6 + mined * 0.38; // she speeds up as she empties
+  } else if (S.funded) {
+    x = 0.5;
+  }
+  setMusicIntensity(x);
 }
 
 function escapeHtml(s: string): string {

@@ -83,8 +83,10 @@ export function pick(
 ): { x: number; y: number } | null {
   const rect = canvas.getBoundingClientRect();
   const { w: LW, h: LH } = canvasSize(); // logical px — independent of DPR backing store
+  if (rect.width === 0 || rect.height === 0) return null; // not laid out yet
   const mx = ((ev.clientX - rect.left) / rect.width) * LW;
   const my = ((ev.clientY - rect.top) / rect.height) * LH;
+  if (!Number.isFinite(mx) || !Number.isFinite(my)) return null;
 
   const a = (mx - ORIGIN_X) / (TW / 2);
   const b = (my - ORIGIN_Y + 0.5 * LIFT) / (TH / 2); // assume mid elevation

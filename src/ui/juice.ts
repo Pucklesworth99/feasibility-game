@@ -27,9 +27,23 @@ function out(): AudioNode {
   return bus!;
 }
 
+/** Shared context + bus for the music engine — one mute, one compressor. */
+export function audioContext(): AudioContext {
+  return ac();
+}
+export function masterBus(): AudioNode {
+  return out();
+}
+
+let muteListeners: Array<(m: boolean) => void> = [];
+export function onMuteChange(fn: (m: boolean) => void): void {
+  muteListeners.push(fn);
+}
+
 export function toggleMute(): boolean {
   muted = !muted;
   localStorage.setItem('feasibility-muted', muted ? '1' : '0');
+  muteListeners.forEach((fn) => fn(muted));
   return muted;
 }
 
